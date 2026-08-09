@@ -192,3 +192,45 @@ reconnect row -- follows explicit user direction, per `AGENTS.md`.
   JavaScript case pass.
 - The application-model and authorization pages and the README describe
   the unified interaction.
+
+## Execution Notes
+
+Executed 2026-08-09. Implementation commit `2d27d30`.
+
+Implemented as planned: `displayedPlaylists`, `likedRowLabel`, and
+`emptySourceMessage` in `web/pure.js`; the liked pseudo-playlist (sentinel
+id `liked-songs`), the render-time derived-name filter, the
+load-shuffle-write chain (`runShuffle` over `loadPlaylistSource` /
+`loadLikedSource` / `writeShuffled`), the reconnect-through-the-row gate,
+and the removal of the liked section's elements, listeners, and
+`likedTracks`/`likedToken` state in `web/app.js` and `web/index.html`;
+the four liked page markers left `main_test.go`; the empty-account
+special case is gone since the list always holds the liked row. The
+harness gained a shared write backend modeling replace-versus-append
+contents per target and migrated every chain-affected case.
+
+Deviations, all bounded:
+
+- The membership difference survives unification by composition: a pure
+  `trackChangesSuffix` (extracted from `loadedTracksMessage` without
+  behavior change) is appended to the final Created/Updated message when
+  a cached record was replaced, so the transient loaded message no longer
+  being the last render loses no information.
+- The missing-write-scope stop renders a disconnect-and-reconnect
+  instruction in the track status line; the previous surface for that
+  gate was the liked section's reconnect button, which this plan removes,
+  and the liked row's reconnect only exists for tokens missing the
+  library scope.
+- The "cache hit never shows the progress bar" harness case was removed
+  rather than migrated: the chain's write phase uses the bar by design,
+  so the property it proved no longer exists. The zero-request cache-hit
+  criterion moved into the round-trip case, which now also proves the hit
+  reaches the write as a `PUT` overwrite.
+
+Validation, all passing: `gofmt -l main.go main_test.go` (no output),
+`go test ./...`, `go vet ./...`, `node --check` on both web scripts,
+`node --test web/pure_test.js web/app_test.js` (73 pass, 0 fail),
+`git diff --check`, and the inverted purity grep.
+
+Deployment under the standing direction is recorded below with the
+companion derived-target plan.
