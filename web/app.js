@@ -20,6 +20,7 @@
   let publicConfig = null;
 
   class TokenRejectedError extends Error {}
+  class AuthorizationRevokedError extends TokenRejectedError {}
 
   function renderWorking(message) {
     statusElement.textContent = message;
@@ -92,8 +93,37 @@
   }
 
   function clearPendingAuthorization() {
-    window.sessionStorage.removeItem(stateStorageKey);
-    window.sessionStorage.removeItem(verifierStorageKey);
+    try {
+      window.sessionStorage.removeItem(stateStorageKey);
+    } catch (_) {
+      // Pending authorization cleanup is best effort.
+    }
+    try {
+      window.sessionStorage.removeItem(verifierStorageKey);
+    } catch (_) {
+      // Pending authorization cleanup is best effort.
+    }
+  }
+
+  function storePendingAuthorization(state, verifier) {
+    try {
+      window.sessionStorage.setItem(stateStorageKey, state);
+      window.sessionStorage.setItem(verifierStorageKey, verifier);
+    } catch (_) {
+      clearPendingAuthorization();
+      throw new Error("pending authorization could not be stored");
+    }
+  }
+
+  function readPendingAuthorization() {
+    try {
+      return {
+        state: window.sessionStorage.getItem(stateStorageKey),
+        verifier: window.sessionStorage.getItem(verifierStorageKey)
+      };
+    } catch (_) {
+      return {state: null, verifier: null};
+    }
   }
 
   function clearStoredToken() {
@@ -182,6 +212,9 @@
       throw new TokenRejectedError("Spotify returned a non-JSON token response");
     }
     if (!response.ok) {
+      if (payload && payload.error === "invalid_grant") {
+        throw new AuthorizationRevokedError("Spotify rejected the token request");
+      }
       throw new TokenRejectedError("Spotify rejected the token request");
     }
     return payload;
@@ -205,8 +238,7 @@
     const state = randomBase64URL(32);
     const verifier = randomBase64URL(64);
     const challenge = await codeChallenge(verifier);
-    window.sessionStorage.setItem(stateStorageKey, state);
-    window.sessionStorage.setItem(verifierStorageKey, verifier);
+    storePendingAuthorization(state, verifier);
 
     const url = new URL(authorizeEndpoint);
     url.search = new URLSearchParams({
@@ -227,13 +259,12 @@
 
   async function handleCallback() {
     const parameters = new URLSearchParams(window.location.search);
-    const expectedState = window.sessionStorage.getItem(stateStorageKey);
-    const verifier = window.sessionStorage.getItem(verifierStorageKey);
-    clearPendingAuthorization();
     cleanCallbackURL();
+    const pendingAuthorization = readPendingAuthorization();
+    clearPendingAuthorization();
 
     const returnedState = parameters.get("state");
-    if (!returnedState || !expectedState || returnedState !== expectedState) {
+    if (!returnedState || !pendingAuthorization.state || returnedState !== pendingAuthorization.state) {
       throw new TokenRejectedError("Spotify authorization could not be verified. Please connect again.");
     }
     if (parameters.has("error")) {
@@ -241,7 +272,7 @@
     }
 
     const code = parameters.get("code");
-    if (!code || !verifier) {
+    if (!code || !pendingAuthorization.verifier) {
       throw new TokenRejectedError("Spotify authorization could not be verified. Please connect again.");
     }
 
@@ -250,7 +281,7 @@
       grant_type: "authorization_code",
       code: code,
       redirect_uri: redirectURI(),
-      code_verifier: verifier
+      code_verifier: pendingAuthorization.verifier
     });
     storeTokenResponse(payload, null);
   }
@@ -298,7 +329,7 @@
       await refreshToken(token);
       renderConnected();
     } catch (error) {
-      if (error instanceof TokenRejectedError) {
+      if (error instanceof AuthorizationRevokedError) {
         clearStoredToken();
         renderError("Spotify authorization expired. Please connect again.", true);
         return;

@@ -86,6 +86,15 @@ Spotify remains a separate action.
 
 ## Test
 
+Run the Go tests with Go 1.22 or later:
+
 ```sh
 go test ./...
+```
+
+Run the browser authentication tests with Node.js 18 or later. They use only
+Node's built-in test modules and require no package installation:
+
+```sh
+node --test web/app_test.js
 ```
