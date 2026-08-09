@@ -220,3 +220,38 @@ change.
   `AGENTS.md` point contributors at the tree.
 - The next feature plan can list the architecture pages it changes as
   affected components.
+
+## Execution Notes
+
+Completed on 2026-08-09. Implementation commit: `cf618b8`
+(`Add architecture documentation tree`).
+
+Implemented as planned: the documentation map, the architecture index with
+the trust-boundary diagram, authority rules, and reading order, the seven
+topic pages in their area subdirectories, the `README.md` Documentation
+section, and the single `AGENTS.md` authority rule. Every page opens with
+its ownership statement, links back to the index, and carries a
+`*Revised: 2026-08-09*` line.
+
+Deviations: none in scope. Three claims were corrected against head while
+writing, all within the plan's own sourcing rule: the service page does not
+claim a loopback-only listener (`LISTEN_ADDR` can bind any address); the
+security page attributes `connect-src accounts.spotify.com` to the token
+exchange, since the authorize step is a navigation `connect-src` does not
+govern; a third forward-looking sentence in the integration page's failure
+posture was deleted to keep the two-planned-facts rule. The two permitted
+planned facts appear in three marked mentions (the modify scopes twice, the
+selection attachment point once).
+
+Validation, all passing:
+
+- `git diff --check`: clean.
+- ASCII check over `doc/README.md` and `doc/architecture/`: no non-ASCII.
+- Link integrity: every relative link target exists; each topic page is
+  linked from both the index and the map and links back to the index.
+- Content review against `main.go`, `web/app.js`, `web/pure.js`,
+  `web/index.html`, and the three test files; production facts taken only
+  from completed-plan execution notes already in the repository.
+
+No blockers. Excluded follow-up, deliberate: no roadmap document, no change
+to completed plans, no code or deployment change.
