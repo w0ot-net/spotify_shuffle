@@ -20,8 +20,9 @@ time on every shuffle.
 
 ## Status
 
-The project currently provides a minimal Go HTTP server with a `GET /healthz`
-endpoint. Spotify integration and the browser interface remain planned work.
+The project currently provides a minimal Go HTTP server with an embedded home
+page and a `GET /healthz` endpoint. Spotify integration and an interactive
+browser interface remain planned work.
 
 ## Run
 
@@ -30,6 +31,8 @@ Go 1.22 or later is required.
 ```sh
 go run .
 ```
+
+Open <http://127.0.0.1:8080/> in a browser to view the home page.
 
 The server listens on `127.0.0.1:8080` by default. Set `LISTEN_ADDR` to use a
 different address:
