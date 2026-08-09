@@ -14,6 +14,20 @@ Repository workflow:
   compatibility or migration consequences.
 - Preserve unrelated user changes in the worktree.
 
+Private production operations:
+
+- Before any TrueShuffle hosted-service, remote-server, deployment, rollback,
+  production-configuration, or live diagnostic work, read the machine-local
+  `/root/ops/trueshuffle/RUNBOOK.md` completely.
+- Treat that runbook as private context. Never copy its access details into the
+  repository, repository plans or documentation, issues, commit messages, or
+  public examples.
+- If the private runbook is absent or unreadable, stop and request the private
+  operations context instead of guessing access or deployment details.
+- A repository code or documentation task does not by itself authorize remote
+  access or deployment; require explicit user direction for a live production
+  operation.
+
 Documentation rules:
 
 - Keep `README.md` accurate as the user-facing entry point.
