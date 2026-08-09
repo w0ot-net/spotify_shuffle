@@ -9,13 +9,11 @@ var TrueShuffle = (function () {
   const likedTracksEndpoint = "https://api.spotify.com/v1/me/tracks";
   // The saved-tracks endpoint maximum; it supports no fields filtering.
   const likedPageLimit = 50;
-  const meEndpoint = "https://api.spotify.com/v1/me";
-  const usersEndpointPrefix = "https://api.spotify.com/v1/users/";
-  // The add-tracks endpoint accepts at most 100 URIs per request.
+  // The add-items endpoint accepts at most 100 URIs per request.
   const addTracksBatchLimit = 100;
-  // The published maximum page size for the tracks endpoint. The server
+  // The published maximum page size for the playlist-items endpoint. The server
   // echoes the size it actually enforced, and offsets step by that echo.
-  const trackPageLimit = 100;
+  const trackPageLimit = 50;
   // Spotify caps a playlist at 10,000 items.
   const maxPlaylistTracks = 10000;
 
@@ -96,7 +94,7 @@ var TrueShuffle = (function () {
       playlists.push({
         id: item.id,
         name: typeof item.name === "string" && item.name !== "" ? item.name : "Untitled playlist",
-        total: item.tracks && Number.isFinite(item.tracks.total) ? item.tracks.total : null,
+        total: item.items && Number.isFinite(item.items.total) ? item.items.total : null,
         // The listing's version stamp is what selection compares against the
         // track cache, so a hit needs no extra request.
         snapshotId: typeof item.snapshot_id === "string" && item.snapshot_id !== "" ? item.snapshot_id : null
@@ -119,7 +117,7 @@ var TrueShuffle = (function () {
 
   function trackPageURL(playlistId, offset) {
     return playlistEndpointPrefix + encodeURIComponent(playlistId) +
-      "/tracks?fields=limit,total,items(track(uri))" +
+      "/items?fields=limit,total,items(item(uri))" +
       "&limit=" + trackPageLimit + "&offset=" + offset;
   }
 
@@ -130,7 +128,7 @@ var TrueShuffle = (function () {
     return payload.snapshot_id;
   }
 
-  function readTrackPage(payload) {
+  function readURIPage(payload, itemProperty) {
     if (!payload || !Array.isArray(payload.items) ||
         !Number.isInteger(payload.limit) || payload.limit <= 0 ||
         !Number.isInteger(payload.total) || payload.total < 0) {
@@ -140,35 +138,37 @@ var TrueShuffle = (function () {
     for (const item of payload.items) {
       // Items without an exposable track URI are skipped, but the raw count
       // keeps them so completeness is checked against what Spotify sent.
-      if (item && item.track && typeof item.track.uri === "string" && item.track.uri !== "") {
-        uris.push(item.track.uri);
+      const content = item && item[itemProperty];
+      if (content && typeof content.uri === "string" && content.uri !== "") {
+        uris.push(content.uri);
       }
     }
     return {limit: payload.limit, total: payload.total, count: payload.items.length, uris: uris};
+  }
+
+  function readPlaylistItemPage(payload) {
+    return readURIPage(payload, "item");
+  }
+
+  function readLikedTrackPage(payload) {
+    return readURIPage(payload, "track");
   }
 
   function likedPageURL(offset) {
     return likedTracksEndpoint + "?limit=" + likedPageLimit + "&offset=" + offset;
   }
 
-  function createPlaylistURL(userId) {
-    return usersEndpointPrefix + encodeURIComponent(userId) + "/playlists";
+  function createPlaylistURL() {
+    return playlistsEndpoint;
   }
 
   function addTracksURL(playlistId) {
-    return playlistEndpointPrefix + encodeURIComponent(playlistId) + "/tracks";
+    return playlistEndpointPrefix + encodeURIComponent(playlistId) + "/items";
   }
 
   function playlistTotalURL(playlistId) {
     return playlistEndpointPrefix + encodeURIComponent(playlistId) +
-      "?fields=tracks.total";
-  }
-
-  function readUserId(payload) {
-    if (!payload || typeof payload.id !== "string" || payload.id === "") {
-      throw new Error("Spotify returned an invalid user profile");
-    }
-    return payload.id;
+      "?fields=items.total";
   }
 
   function readCreatedPlaylist(payload) {
@@ -182,11 +182,11 @@ var TrueShuffle = (function () {
   }
 
   function readPlaylistTotal(payload) {
-    if (!payload || !payload.tracks ||
-        !Number.isInteger(payload.tracks.total) || payload.tracks.total < 0) {
+    if (!payload || !payload.items ||
+        !Number.isInteger(payload.items.total) || payload.items.total < 0) {
       throw new Error("Spotify returned an invalid playlist total");
     }
-    return payload.tracks.total;
+    return payload.items.total;
   }
 
   // Fisher-Yates with injected randomness so the shuffle is directly
@@ -386,17 +386,16 @@ var TrueShuffle = (function () {
     likedSourceName: likedSourceName,
     loadedTracksMessage: loadedTracksMessage,
     maxPlaylistTracks: maxPlaylistTracks,
-    meEndpoint: meEndpoint,
     playlistLabel: playlistLabel,
     playlistSnapshotURL: playlistSnapshotURL,
     playlistTotalURL: playlistTotalURL,
     playlistsEndpoint: playlistsEndpoint,
     readCreatedPlaylist: readCreatedPlaylist,
+    readLikedTrackPage: readLikedTrackPage,
     readPlaylistPage: readPlaylistPage,
+    readPlaylistItemPage: readPlaylistItemPage,
     readPlaylistSnapshot: readPlaylistSnapshot,
     readPlaylistTotal: readPlaylistTotal,
-    readTrackPage: readTrackPage,
-    readUserId: readUserId,
     remainingTrackOffsets: remainingTrackOffsets,
     shadowedRowsNote: shadowedRowsNote,
     shuffledURIs: shuffledURIs,

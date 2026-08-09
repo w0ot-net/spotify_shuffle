@@ -6,26 +6,22 @@ This page owns the contract with Spotify: the endpoints in use, the paging
 bounds, and the scopes position. Return to the
 [architecture index](../README.md).
 
-All Spotify traffic originates in the browser. Five endpoints are in use:
+All Spotify traffic originates in the browser. These endpoint paths are in use:
 
 - `https://accounts.spotify.com/authorize` -- top-level navigation opening
   the consent flow.
 - `https://accounts.spotify.com/api/token` -- form-encoded POST for the code
   exchange and refresh grants.
 - `https://api.spotify.com/v1/me/playlists` -- authenticated GET listing the
-  connected account's playlists.
+  connected account's playlists and POST creating a private shuffled
+  playlist.
 - `https://api.spotify.com/v1/playlists/{id}` -- authenticated GET pinning
   and verifying the playlist `snapshot_id` around a track read.
-- `https://api.spotify.com/v1/playlists/{id}/tracks` -- authenticated GET
-  reading the selected playlist's track URIs.
+- `https://api.spotify.com/v1/playlists/{id}/items` -- authenticated GET
+  reading the selected playlist's track URIs, POST appending shuffled URIs,
+  and PUT replacing existing contents.
 - `https://api.spotify.com/v1/me/tracks` -- authenticated GET reading the
   account's Liked Songs library.
-- `https://api.spotify.com/v1/me` -- authenticated GET for the user id a
-  playlist creation needs.
-- `https://api.spotify.com/v1/users/{id}/playlists` -- authenticated POST
-  creating the private shuffled playlist.
-- `https://api.spotify.com/v1/playlists/{id}/tracks` -- authenticated POST
-  appending shuffled URIs to the playlist this app just created.
 
 ## Paging
 
@@ -35,19 +31,19 @@ Listing requests `limit=50`, the endpoint maximum, and follows the response
 pages -- the API's 10,000-playlist library cap divided by the page size --
 and exceeding the bound is an error, never a silent truncation, because a
 silently short list would later shuffle the wrong playlist. Full playlist
-objects are returned; the page reader consumes `id`, `name`, `tracks.total`,
+objects are returned; the page reader consumes `id`, `name`, `items.total`,
 and `snapshot_id`, skipping the null placeholders Spotify emits for items it
 cannot expose.
 
 ## Track reading
 
 Selecting a playlist reads its complete ordered track URI list in three
-phases: pin the playlist's `snapshot_id`, fetch the `/tracks` pages, then
+phases: pin the playlist's `snapshot_id`, fetch the `/items` pages, then
 re-fetch the `snapshot_id` and require it unchanged, so a playlist mutating
 mid-read fails the read instead of silently assembling a corrupted order.
 
-Track requests are `fields`-filtered to `limit,total,items(track(uri))` --
-URIs only, never full track metadata -- and ask for `limit=100`, the
+Track requests are `fields`-filtered to `limit,total,items(item(uri))` --
+URIs only, never full track metadata -- and ask for `limit=50`, the
 documented maximum. The first page's response echoes the page size the
 server actually enforced and the authoritative total; the remaining offsets
 are computed from those echoed facts, never from documentation assumptions,
@@ -90,14 +86,15 @@ is either returned by the create call it just made or found in the
 page-load listing under a name exactly equal to the derived name, so a
 playlist without the suffix is unreachable by construction.
 
-When no listed playlist bears the derived name, the flow reads the user
-id, `POST`s a private playlist under that name, and appends the shuffled
-URIs in sequential `POST` batches of at most 100 -- sequential because
-each append lands at the end, so arrival order is the shuffled order.
+When no listed playlist bears the derived name, the flow `POST`s a private
+playlist under that name to `/v1/me/playlists`, and appends the shuffled URIs
+to `/v1/playlists/{id}/items` in sequential batches of at most 100 --
+sequential because each append lands at the end, so arrival order is the
+shuffled order.
 When the target exists, the first batch goes by `PUT`, replacing the
 entire contents, and the remaining batches append; a rerun after any
 mid-write failure therefore starts from a clean replacement, never
-appending onto wreckage. Either way a final `fields=tracks.total` read of
+appending onto wreckage. Either way a final `fields=items.total` read of
 the target must equal the written count or the flow names the target as
 possibly incomplete and offers a rerun; it never claims success on a
 shortfall. A source above the 10,000-item playlist cap fails before

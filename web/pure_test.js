@@ -50,10 +50,10 @@ test("playlistLabel pluralizes and omits unknown totals", () => {
 test("readPlaylistPage parses items and skips null placeholders", () => {
   assert.deepEqual(plain(TrueShuffle.readPlaylistPage({
     items: [
-      {id: "first", name: "Morning", tracks: {total: 3}, snapshot_id: "snap-1"},
+      {id: "first", name: "Morning", items: {total: 3}, snapshot_id: "snap-1"},
       null,
       {id: "", name: "unexposed"},
-      {id: "second", name: "", tracks: {total: "many"}, snapshot_id: ""},
+      {id: "second", name: "", items: {total: "many"}, snapshot_id: ""},
       {id: "third", snapshot_id: 7}
     ]
   })), [
@@ -89,13 +89,13 @@ test("track URLs are built on the API origin with the id encoded", () => {
   );
   assert.equal(
     TrueShuffle.trackPageURL("abc123", 200),
-    "https://api.spotify.com/v1/playlists/abc123/tracks" +
-      "?fields=limit,total,items(track(uri))&limit=100&offset=200"
+    "https://api.spotify.com/v1/playlists/abc123/items" +
+      "?fields=limit,total,items(item(uri))&limit=50&offset=200"
   );
   assert.equal(
     TrueShuffle.trackPageURL("a/b?c#d", 0),
-    "https://api.spotify.com/v1/playlists/a%2Fb%3Fc%23d/tracks" +
-      "?fields=limit,total,items(track(uri))&limit=100&offset=0"
+    "https://api.spotify.com/v1/playlists/a%2Fb%3Fc%23d/items" +
+      "?fields=limit,total,items(item(uri))&limit=50&offset=0"
   );
 });
 
@@ -106,27 +106,37 @@ test("readPlaylistSnapshot requires a non-empty snapshot string", () => {
   }
 });
 
-test("readTrackPage keeps URIs and counts every raw item", () => {
-  const page = TrueShuffle.readTrackPage({
-    limit: 100,
+test("readPlaylistItemPage keeps URIs and counts every raw item", () => {
+  const page = TrueShuffle.readPlaylistItemPage({
+    limit: 50,
     total: 250,
     items: [
-      {track: {uri: "spotify:track:a"}},
+      {item: {uri: "spotify:track:a"}},
       null,
-      {track: null},
-      {track: {uri: ""}},
-      {track: {uri: 7}},
-      {track: {uri: "spotify:track:b"}}
+      {item: null},
+      {item: {uri: ""}},
+      {item: {uri: 7}},
+      {item: {uri: "spotify:track:b"}}
     ]
   });
-  assert.equal(page.limit, 100);
+  assert.equal(page.limit, 50);
   assert.equal(page.total, 250);
   assert.equal(page.count, 6, "skipped items still count toward completeness");
   assert.deepEqual(plain(page.uris), ["spotify:track:a", "spotify:track:b"]);
 });
 
-test("readTrackPage rejects malformed payloads", () => {
-  const valid = {limit: 100, total: 0, items: []};
+test("playlist and saved-track page readers select their respective item fields", () => {
+  const payload = {
+    limit: 50,
+    total: 1,
+    items: [{item: {uri: "spotify:track:playlist"}, track: {uri: "spotify:track:liked"}}]
+  };
+  assert.deepEqual(plain(TrueShuffle.readPlaylistItemPage(payload).uris), ["spotify:track:playlist"]);
+  assert.deepEqual(plain(TrueShuffle.readLikedTrackPage(payload).uris), ["spotify:track:liked"]);
+});
+
+test("track page readers reject malformed payloads", () => {
+  const valid = {limit: 50, total: 0, items: []};
   const cases = [
     null,
     undefined,
@@ -139,7 +149,8 @@ test("readTrackPage rejects malformed payloads", () => {
     Object.assign({}, valid, {total: "250"})
   ];
   for (const payload of cases) {
-    assert.throws(() => TrueShuffle.readTrackPage(payload), /invalid track page/);
+    assert.throws(() => TrueShuffle.readPlaylistItemPage(payload), /invalid track page/);
+    assert.throws(() => TrueShuffle.readLikedTrackPage(payload), /invalid track page/);
   }
 });
 
@@ -340,27 +351,21 @@ test("buildTokenRecord rejects incomplete responses as TokenRejectedError", () =
 });
 
 test("write-path URLs are built on the API origin with ids encoded", () => {
-  assert.equal(TrueShuffle.meEndpoint, "https://api.spotify.com/v1/me");
   assert.equal(
-    TrueShuffle.createPlaylistURL("user/1"),
-    "https://api.spotify.com/v1/users/user%2F1/playlists"
+    TrueShuffle.createPlaylistURL(),
+    "https://api.spotify.com/v1/me/playlists"
   );
   assert.equal(
     TrueShuffle.addTracksURL("pl?1"),
-    "https://api.spotify.com/v1/playlists/pl%3F1/tracks"
+    "https://api.spotify.com/v1/playlists/pl%3F1/items"
   );
   assert.equal(
     TrueShuffle.playlistTotalURL("pl1"),
-    "https://api.spotify.com/v1/playlists/pl1?fields=tracks.total"
+    "https://api.spotify.com/v1/playlists/pl1?fields=items.total"
   );
 });
 
 test("write-path readers validate their payloads", () => {
-  assert.equal(TrueShuffle.readUserId({id: "user-1"}), "user-1");
-  for (const payload of [null, {}, {id: ""}, {id: 7}]) {
-    assert.throws(() => TrueShuffle.readUserId(payload), /invalid user profile/);
-  }
-
   assert.deepEqual(
     plain(TrueShuffle.readCreatedPlaylist({id: "pl-1", name: "Liked Shuffle"})),
     {id: "pl-1", name: "Liked Shuffle"}
@@ -370,9 +375,9 @@ test("write-path readers validate their payloads", () => {
     assert.throws(() => TrueShuffle.readCreatedPlaylist(payload), /invalid created playlist/);
   }
 
-  assert.equal(TrueShuffle.readPlaylistTotal({tracks: {total: 0}}), 0);
-  assert.equal(TrueShuffle.readPlaylistTotal({tracks: {total: 4212}}), 4212);
-  for (const payload of [null, {}, {tracks: {}}, {tracks: {total: -1}}, {tracks: {total: "3"}}]) {
+  assert.equal(TrueShuffle.readPlaylistTotal({items: {total: 0}}), 0);
+  assert.equal(TrueShuffle.readPlaylistTotal({items: {total: 4212}}), 4212);
+  for (const payload of [null, {}, {items: {}}, {items: {total: -1}}, {items: {total: "3"}}]) {
     assert.throws(() => TrueShuffle.readPlaylistTotal(payload), /invalid playlist total/);
   }
 });

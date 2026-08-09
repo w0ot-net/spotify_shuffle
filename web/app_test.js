@@ -236,7 +236,15 @@ function snapshotPage(snapshotId) {
   return jsonResponse(200, {snapshot_id: snapshotId});
 }
 
-function trackPageResponse(limit, total, uris) {
+function playlistItemPageResponse(limit, total, uris) {
+  return jsonResponse(200, {
+    limit: limit,
+    total: total,
+    items: uris.map((uri) => ({item: {uri: uri}}))
+  });
+}
+
+function savedTrackPageResponse(limit, total, uris) {
   return jsonResponse(200, {
     limit: limit,
     total: total,
@@ -250,7 +258,7 @@ function snapshotURL(playlistId) {
 
 function trackURL(playlistId, offset) {
   return "https://api.spotify.com/v1/playlists/" + playlistId +
-    "/tracks?fields=limit,total,items(track(uri))&limit=100&offset=" + offset;
+    "/items?fields=limit,total,items(item(uri))&limit=50&offset=" + offset;
 }
 
 // Serves the snapshot pin/verify and every offset page for one playlist
@@ -262,7 +270,7 @@ function steadyTrackHandler(playlistId, snapshotId, limit, uris) {
     }
     const offset = Number(new URL(url).searchParams.get("offset"));
     assert.equal(url, trackURL(playlistId, offset));
-    return trackPageResponse(limit, uris.length, uris.slice(offset, offset + limit));
+    return playlistItemPageResponse(limit, uris.length, uris.slice(offset, offset + limit));
   };
 }
 
@@ -281,7 +289,7 @@ function steadyLikedHandler(limit, uris) {
   return (url) => {
     const offset = Number(new URL(url).searchParams.get("offset"));
     assert.equal(url, likedURL(offset));
-    return trackPageResponse(limit, uris.length, uris.slice(offset, offset + limit));
+    return savedTrackPageResponse(limit, uris.length, uris.slice(offset, offset + limit));
   };
 }
 
@@ -293,8 +301,8 @@ function deferred() {
   return {promise: promise, resolve: resolve};
 }
 
-// Serves the whole write path for any number of derived targets: profile,
-// creation (assigning target-1, target-2, ...), batch writes with
+// Serves the whole write path for any number of derived targets: creation
+// (assigning target-1, target-2, ...), batch writes with
 // replace-versus-append contents modeling, and totals. Pre-register
 // {id, name, contents} rows via backend.targets for derived playlists that
 // already exist. handle() returns null for URLs it does not own.
@@ -303,10 +311,7 @@ function makeWriteBackend() {
   backend.find = (id) => backend.targets.find((target) => target.id === id) || null;
   backend.writesFor = (id) => backend.writes.filter((write) => write.id === id);
   backend.handle = (url, requestOptions) => {
-    if (url === "https://api.spotify.com/v1/me") {
-      return jsonResponse(200, {id: "user-1"});
-    }
-    if (url === "https://api.spotify.com/v1/users/user-1/playlists") {
+    if (url === playlistsEndpoint) {
       assert.equal(requestOptions.method, "POST");
       const body = JSON.parse(requestOptions.body);
       backend.createBodies.push(body);
@@ -315,7 +320,7 @@ function makeWriteBackend() {
       backend.targets.push(target);
       return jsonResponse(200, {id: target.id, name: target.name});
     }
-    const write = url.match(/^https:\/\/api\.spotify\.com\/v1\/playlists\/([^/?]+)\/tracks$/);
+    const write = url.match(/^https:\/\/api\.spotify\.com\/v1\/playlists\/([^/?]+)\/items$/);
     if (write !== null && backend.find(write[1]) !== null) {
       const target = backend.find(write[1]);
       const uris = JSON.parse(requestOptions.body).uris;
@@ -325,9 +330,9 @@ function makeWriteBackend() {
         : (target.contents || []).concat(uris);
       return jsonResponse(201, {snapshot_id: "write-snap"});
     }
-    const total = url.match(/^https:\/\/api\.spotify\.com\/v1\/playlists\/([^/?]+)\?fields=tracks\.total$/);
+    const total = url.match(/^https:\/\/api\.spotify\.com\/v1\/playlists\/([^/?]+)\?fields=items\.total$/);
     if (total !== null && backend.find(total[1]) !== null) {
-      return jsonResponse(200, {tracks: {total: (backend.find(total[1]).contents || []).length}});
+      return jsonResponse(200, {items: {total: (backend.find(total[1]).contents || []).length}});
     }
     return null;
   };
@@ -338,7 +343,6 @@ function makeWriteBackend() {
 // playlists prefix to the source read handler.
 function backendOptions(backend, sourceTrackHandler) {
   return {
-    meHandler: backend.handle,
     createPlaylistHandler: backend.handle,
     trackHandler: (url, requestOptions) =>
       backend.handle(url, requestOptions) ||
@@ -409,10 +413,7 @@ function createHarness(options) {
       if (url.startsWith("https://api.spotify.com/v1/me/tracks") && options.likedHandler) {
         return options.likedHandler(url, requestOptions);
       }
-      if (url === "https://api.spotify.com/v1/me" && options.meHandler) {
-        return options.meHandler(url, requestOptions);
-      }
-      if (url.startsWith("https://api.spotify.com/v1/users/") && options.createPlaylistHandler) {
+      if (url === playlistsEndpoint && options.createPlaylistHandler) {
         return options.createPlaylistHandler(url, requestOptions);
       }
       if (url.startsWith("https://api.spotify.com/v1/playlists/") && options.trackHandler) {
@@ -610,13 +611,13 @@ test("playlist listing renders every page in order", async () => {
     playlistHandler: (url) => {
       if (url === playlistsEndpoint + "?limit=50") {
         return playlistPage([
-          {id: "first", name: "Morning", tracks: {total: 1}},
+          {id: "first", name: "Morning", items: {total: 1}},
           null,
-          {id: "second", name: "Evening", tracks: {total: 4212}}
+          {id: "second", name: "Evening", items: {total: 4212}}
         ], secondPage);
       }
       assert.equal(url, secondPage);
-      return playlistPage([{id: "third", name: "Late", tracks: {total: 0}}]);
+      return playlistPage([{id: "third", name: "Late", items: {total: 0}}]);
     }
   });
 
@@ -681,7 +682,7 @@ test("a playlist page cursor off the Spotify API origin is rejected", async () =
   const harness = createHarness({
     localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
     playlistHandler: () => playlistPage(
-      [{id: "first", name: "Morning", tracks: {total: 1}}],
+      [{id: "first", name: "Morning", items: {total: 1}}],
       attackerCursor
     )
   });
@@ -710,12 +711,12 @@ test("selecting a playlist marks it and moves the mark on reselection", async ()
   const harness = createHarness(Object.assign({
     localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
     playlistHandler: () => playlistPage([
-      {id: "first", name: "Morning", tracks: {total: 1}},
-      {id: "second", name: "Evening", tracks: {total: 1}}
+      {id: "first", name: "Morning", items: {total: 1}},
+      {id: "second", name: "Evening", items: {total: 1}}
     ])
   }, backendOptions(backend, (url, requestOptions) => {
     const playlistId = url.includes("/playlists/first") ? "first" : "second";
-    return steadyTrackHandler(playlistId, "snap-" + playlistId, 100, ["spotify:track:" + playlistId])(url);
+    return steadyTrackHandler(playlistId, "snap-" + playlistId, 50, ["spotify:track:" + playlistId])(url);
   })));
 
   await settle();
@@ -744,8 +745,8 @@ test("disconnecting clears a rendered playlist list and track state", async () =
   const backend = makeWriteBackend();
   const harness = createHarness(Object.assign({
     localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
-    playlistHandler: () => playlistPage([{id: "first", name: "Morning", tracks: {total: 1}}])
-  }, backendOptions(backend, steadyTrackHandler("first", "snap-1", 100, ["spotify:track:a"]))));
+    playlistHandler: () => playlistPage([{id: "first", name: "Morning", items: {total: 1}}])
+  }, backendOptions(backend, steadyTrackHandler("first", "snap-1", 50, ["spotify:track:a"]))));
 
   await settle();
   assert.equal(playlistButtons(harness).length, 2);
@@ -771,8 +772,8 @@ test("a playlist chain reads every page and writes batched to its target", async
   const backend = makeWriteBackend();
   const harness = createHarness(Object.assign({
     localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
-    playlistHandler: () => playlistPage([{id: "big", name: "Big", tracks: {total: 250}}])
-  }, backendOptions(backend, steadyTrackHandler("big", "snap-1", 100, uris))));
+    playlistHandler: () => playlistPage([{id: "big", name: "Big", items: {total: 250}}])
+  }, backendOptions(backend, steadyTrackHandler("big", "snap-1", 50, uris))));
 
   await settle();
   playlistButtons(harness)[1].click();
@@ -784,7 +785,9 @@ test("a playlist chain reads every page and writes batched to its target", async
   assert.deepEqual(sourceReads.map((request) => request.url), [
     snapshotURL("big"),
     trackURL("big", 0),
+    trackURL("big", 50),
     trackURL("big", 100),
+    trackURL("big", 150),
     trackURL("big", 200),
     snapshotURL("big")
   ]);
@@ -811,7 +814,7 @@ test("track pages dispatch through a bounded pool and assemble out of order", as
   const backend = makeWriteBackend();
   const harness = createHarness(Object.assign({
     localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
-    playlistHandler: () => playlistPage([{id: "big", name: "Big", tracks: {total: 8}}])
+    playlistHandler: () => playlistPage([{id: "big", name: "Big", items: {total: 8}}])
   }, backendOptions(backend, (url) => {
     if (url === snapshotURL("big")) {
       return snapshotPage("snap-1");
@@ -819,7 +822,7 @@ test("track pages dispatch through a bounded pool and assemble out of order", as
     if (url === trackURL("big", 0)) {
       // The echoed limit of 1 is what the remaining offsets step by, so
       // documentation assumptions about the page size cannot matter.
-      return trackPageResponse(1, 8, [uris[0]]);
+      return playlistItemPageResponse(1, 8, [uris[0]]);
     }
     const offset = Number(new URL(url).searchParams.get("offset"));
     const entry = deferred();
@@ -840,13 +843,13 @@ test("track pages dispatch through a bounded pool and assemble out of order", as
   assert.equal(harness.trackProgressElement.max, 8);
   assert.equal(harness.trackProgressElement.value, 1);
 
-  deferredByOffset.get(3).resolve(trackPageResponse(1, 8, [uris[3]]));
+  deferredByOffset.get(3).resolve(playlistItemPageResponse(1, 8, [uris[3]]));
   await settle();
   assert.ok(deferredByOffset.has(7), "a freed slot dispatches the next page");
   assert.equal(harness.trackProgressElement.value, 2, "a completed page advances the bar");
 
   for (const offset of [7, 1, 6, 2, 5, 4]) {
-    deferredByOffset.get(offset).resolve(trackPageResponse(1, 8, [uris[offset]]));
+    deferredByOffset.get(offset).resolve(playlistItemPageResponse(1, 8, [uris[offset]]));
   }
   await settle();
 
@@ -861,13 +864,13 @@ test("a snapshot change during the read fails it and disturbs nothing else", asy
   const localStorage = new FakeStorage({[tokenStorageKey]: rawToken});
   const harness = createHarness({
     localStorage: localStorage,
-    playlistHandler: () => playlistPage([{id: "torn", name: "Morning", tracks: {total: 1}}]),
+    playlistHandler: () => playlistPage([{id: "torn", name: "Morning", items: {total: 1}}]),
     trackHandler: (url) => {
       if (url === snapshotURL("torn")) {
         snapshotCalls += 1;
         return snapshotPage(snapshotCalls === 1 ? "snap-1" : "snap-2");
       }
-      return trackPageResponse(100, 1, ["spotify:track:a"]);
+      return playlistItemPageResponse(50, 1, ["spotify:track:a"]);
     }
   });
 
@@ -893,10 +896,10 @@ test("a snapshot change during the read fails it and disturbs nothing else", asy
 test("a track count short of the total fails the read", async () => {
   const harness = createHarness({
     localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
-    playlistHandler: () => playlistPage([{id: "short", name: "Morning", tracks: {total: 3}}]),
+    playlistHandler: () => playlistPage([{id: "short", name: "Morning", items: {total: 3}}]),
     trackHandler: (url) => url === snapshotURL("short")
       ? snapshotPage("snap-1")
-      : trackPageResponse(100, 3, ["spotify:track:a", "spotify:track:b"])
+      : playlistItemPageResponse(50, 3, ["spotify:track:a", "spotify:track:b"])
   });
 
   await settle();
@@ -914,7 +917,7 @@ test("a failed track read leaves the listing and token intact", async () => {
   const localStorage = new FakeStorage({[tokenStorageKey]: rawToken});
   const harness = createHarness({
     localStorage: localStorage,
-    playlistHandler: () => playlistPage([{id: "down", name: "Morning", tracks: {total: 1}}]),
+    playlistHandler: () => playlistPage([{id: "down", name: "Morning", items: {total: 1}}]),
     trackHandler: () => jsonResponse(500, {error: {status: 500}})
   });
 
@@ -945,9 +948,9 @@ test("re-selecting an unchanged playlist reaches the write with zero track reque
     indexedDB: indexedDB,
     localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
     playlistHandler: () => playlistPage([
-      {id: "steady", name: "Morning", tracks: {total: 2}, snapshot_id: "snap-1"}
+      {id: "steady", name: "Morning", items: {total: 2}, snapshot_id: "snap-1"}
     ])
-  }, backendOptions(backend, steadyTrackHandler("steady", "snap-1", 100, ["spotify:track:a", "spotify:track:b"]))));
+  }, backendOptions(backend, steadyTrackHandler("steady", "snap-1", 50, ["spotify:track:a", "spotify:track:b"]))));
 
   await settle();
   playlistButtons(harness)[1].click();
@@ -1001,9 +1004,9 @@ test("a snapshot mismatch re-reads, stores, and reports added and removed counts
     indexedDB: indexedDB,
     localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
     playlistHandler: () => playlistPage([
-      {id: "changed", name: "Morning", tracks: {total: 3}, snapshot_id: "snap-new"}
+      {id: "changed", name: "Morning", items: {total: 3}, snapshot_id: "snap-new"}
     ])
-  }, backendOptions(backend, steadyTrackHandler("changed", "snap-new", 100,
+  }, backendOptions(backend, steadyTrackHandler("changed", "snap-new", 50,
     ["spotify:track:b", "spotify:track:c", "spotify:track:c"]))));
 
   await settle();
@@ -1039,9 +1042,9 @@ test("a membership-identical change renders the plain count", async () => {
     indexedDB: indexedDB,
     localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
     playlistHandler: () => playlistPage([
-      {id: "reordered", name: "Morning", tracks: {total: 2}, snapshot_id: "snap-new"}
+      {id: "reordered", name: "Morning", items: {total: 2}, snapshot_id: "snap-new"}
     ])
-  }, backendOptions(backend, steadyTrackHandler("reordered", "snap-new", 100,
+  }, backendOptions(backend, steadyTrackHandler("reordered", "snap-new", 50,
     ["spotify:track:b", "spotify:track:a"]))));
 
   await settle();
@@ -1061,9 +1064,9 @@ test("an unavailable cache degrades to an uncached read", async () => {
     indexedDB: new FakeIndexedDB({unavailable: true}),
     localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
     playlistHandler: () => playlistPage([
-      {id: "nocache", name: "Morning", tracks: {total: 1}, snapshot_id: "snap-1"}
+      {id: "nocache", name: "Morning", items: {total: 1}, snapshot_id: "snap-1"}
     ])
-  }, backendOptions(backend, steadyTrackHandler("nocache", "snap-1", 100, ["spotify:track:a"]))));
+  }, backendOptions(backend, steadyTrackHandler("nocache", "snap-1", 50, ["spotify:track:a"]))));
 
   await settle();
   playlistButtons(harness)[1].click();
@@ -1090,7 +1093,7 @@ test("a failed re-read preserves the previous cache record", async () => {
     indexedDB: indexedDB,
     localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
     playlistHandler: () => playlistPage([
-      {id: "kept", name: "Morning", tracks: {total: 1}, snapshot_id: "snap-new"}
+      {id: "kept", name: "Morning", items: {total: 1}, snapshot_id: "snap-new"}
     ]),
     trackHandler: () => jsonResponse(500, {error: {status: 500}})
   });
@@ -1124,7 +1127,7 @@ test("disconnecting deletes the track cache database", async () => {
     indexedDB: indexedDB,
     localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
     playlistHandler: () => playlistPage([
-      {id: "gone", name: "Morning", tracks: {total: 1}, snapshot_id: "snap-1"}
+      {id: "gone", name: "Morning", items: {total: 1}, snapshot_id: "snap-1"}
     ])
   });
 
@@ -1139,7 +1142,7 @@ test("disconnecting during a track read renders nothing afterward", async () => 
   const entry = deferred();
   const harness = createHarness({
     localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
-    playlistHandler: () => playlistPage([{id: "slow", name: "Morning", tracks: {total: 1}}]),
+    playlistHandler: () => playlistPage([{id: "slow", name: "Morning", items: {total: 1}}]),
     trackHandler: (url) => url === snapshotURL("slow") ? snapshotPage("snap-1") : entry.promise
   });
 
@@ -1149,7 +1152,7 @@ test("disconnecting during a track read renders nothing afterward", async () => 
   assert.equal(harness.trackStatusElement.textContent, "Loading tracks...");
 
   harness.logoutButton.click();
-  entry.resolve(trackPageResponse(100, 1, ["spotify:track:a"]));
+  entry.resolve(playlistItemPageResponse(50, 1, ["spotify:track:a"]));
   await settle();
 
   assert.equal(harness.trackStatusElement.hidden, true);
@@ -1176,7 +1179,7 @@ test("connect recovers from a partial pending authorization write", async () => 
 test("a token without the library scope shows the reconnect row", async () => {
   const harness = createHarness({
     localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
-    playlistHandler: () => playlistPage([{id: "first", name: "Morning", tracks: {total: 1}}])
+    playlistHandler: () => playlistPage([{id: "first", name: "Morning", items: {total: 1}}])
   });
 
   await settle();
@@ -1245,8 +1248,8 @@ test("an existing derived target is overwritten and hidden from the list", async
   const harness = createHarness(Object.assign({
     localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
     playlistHandler: () => playlistPage([
-      {id: "target-9", name: "Liked Songs TrueShuffle", tracks: {total: 1}, snapshot_id: "snap-t"},
-      {id: "first", name: "Morning", tracks: {total: 1}, snapshot_id: "snap-1"}
+      {id: "target-9", name: "Liked Songs TrueShuffle", items: {total: 1}, snapshot_id: "snap-t"},
+      {id: "first", name: "Morning", items: {total: 1}, snapshot_id: "snap-1"}
     ]),
     likedHandler: steadyLikedHandler(50, uris)
   }, backendOptions(backend)));
@@ -1318,7 +1321,7 @@ test("a mid-write failure names the possibly partial target", async () => {
   }, backendOptions(backend));
   const workingTrackHandler = options.trackHandler;
   options.trackHandler = (url, requestOptions) => {
-    if (url === "https://api.spotify.com/v1/playlists/target-1/tracks" &&
+    if (url === "https://api.spotify.com/v1/playlists/target-1/items" &&
         backend.writes.length === 1) {
       return jsonResponse(500, {error: {status: 500, message: "Server error"}});
     }
@@ -1332,7 +1335,7 @@ test("a mid-write failure names the possibly partial target", async () => {
 
   assert.match(
     harness.trackStatusElement.textContent,
-    /^"Liked Songs TrueShuffle" may be incomplete \(Spotify returned 500 at \/v1\/playlists\/target-1\/tracks: Server error\)\. Shuffle again to rewrite it\.$/
+    /^"Liked Songs TrueShuffle" may be incomplete \(Spotify returned 500 at \/v1\/playlists\/target-1\/items: Server error\)\. Shuffle again to rewrite it\.$/
   );
   assert.equal(harness.trackProgressElement.hidden, true);
 });
@@ -1345,8 +1348,8 @@ test("a verification shortfall never claims success", async () => {
   }, backendOptions(backend));
   const workingTrackHandler = options.trackHandler;
   options.trackHandler = (url, requestOptions) => {
-    if (url === "https://api.spotify.com/v1/playlists/target-1?fields=tracks.total") {
-      return jsonResponse(200, {tracks: {total: 1}});
+    if (url === "https://api.spotify.com/v1/playlists/target-1?fields=items.total") {
+      return jsonResponse(200, {items: {total: 1}});
     }
     return workingTrackHandler(url, requestOptions);
   };
@@ -1386,9 +1389,9 @@ test("a source with no tracks reports that and writes nothing", async () => {
   const backend = makeWriteBackend();
   const harness = createHarness(Object.assign({
     localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
-    playlistHandler: () => playlistPage([{id: "empty", name: "Empty", tracks: {total: 0}}]),
+    playlistHandler: () => playlistPage([{id: "empty", name: "Empty", items: {total: 0}}]),
     likedHandler: steadyLikedHandler(50, [])
-  }, backendOptions(backend, steadyTrackHandler("empty", "snap-1", 100, []))));
+  }, backendOptions(backend, steadyTrackHandler("empty", "snap-1", 50, []))));
 
   await settle();
   const buttons = playlistButtons(harness);
@@ -1437,7 +1440,7 @@ test("a chain in flight disables every row", async () => {
   const backend = makeWriteBackend();
   const harness = createHarness(Object.assign({
     localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
-    playlistHandler: () => playlistPage([{id: "first", name: "Morning", tracks: {total: 1}}]),
+    playlistHandler: () => playlistPage([{id: "first", name: "Morning", items: {total: 1}}]),
     likedHandler: () => entry.promise
   }, backendOptions(backend)));
 
@@ -1449,7 +1452,7 @@ test("a chain in flight disables every row", async () => {
   assert.equal(buttons[0].disabled, true);
   assert.equal(buttons[1].disabled, true);
 
-  entry.resolve(trackPageResponse(50, 1, ["spotify:track:a"]));
+  entry.resolve(savedTrackPageResponse(50, 1, ["spotify:track:a"]));
   await settle();
 
   assert.equal(buttons[0].disabled, false);
@@ -1461,9 +1464,9 @@ test("duplicate-named rows dedupe with a note; unique listings render none", asy
   const harness = createHarness({
     localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
     playlistHandler: () => playlistPage([
-      {id: "a", name: "Morning", tracks: {total: 1}},
-      {id: "b", name: "Liked Songs", tracks: {total: 2}},
-      {id: "c", name: "Morning", tracks: {total: 3}}
+      {id: "a", name: "Morning", items: {total: 1}},
+      {id: "b", name: "Liked Songs", items: {total: 2}},
+      {id: "c", name: "Morning", items: {total: 3}}
     ])
   });
 

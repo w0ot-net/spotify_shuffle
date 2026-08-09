@@ -319,7 +319,7 @@
     }
   }
 
-  async function fetchTrackPages(token, urlForOffset, offsets, onPage) {
+  async function fetchTrackPages(token, urlForOffset, offsets, readPage, onPage) {
     const pages = [];
     let nextIndex = 0;
     let failure = null;
@@ -330,7 +330,7 @@
         const offset = offsets[nextIndex];
         nextIndex += 1;
         try {
-          const page = TrueShuffle.readTrackPage(
+          const page = readPage(
             await requestSpotify(token, urlForOffset(offset))
           );
           pages.push({offset: offset, count: page.count, uris: page.uris});
@@ -358,7 +358,7 @@
     const pinnedSnapshot = TrueShuffle.readPlaylistSnapshot(
       await requestSpotify(token, TrueShuffle.playlistSnapshotURL(playlistId))
     );
-    const firstPage = TrueShuffle.readTrackPage(
+    const firstPage = TrueShuffle.readPlaylistItemPage(
       await requestSpotify(token, TrueShuffle.trackPageURL(playlistId, 0))
     );
     let loadedCount = firstPage.count;
@@ -368,7 +368,7 @@
     );
     const pages = await fetchTrackPages(token, function (offset) {
       return TrueShuffle.trackPageURL(playlistId, offset);
-    }, offsets, function (pageCount) {
+    }, offsets, TrueShuffle.readPlaylistItemPage, function (pageCount) {
       loadedCount += pageCount;
       onProgress(loadedCount, firstPage.total);
     });
@@ -516,7 +516,7 @@
   // probe must report it unchanged; with the summed raw-count check this is
   // the strongest torn-read detection the endpoint offers.
   async function readLikedTracks(token, onProgress) {
-    const firstPage = TrueShuffle.readTrackPage(
+    const firstPage = TrueShuffle.readLikedTrackPage(
       await requestSpotify(token, TrueShuffle.likedPageURL(0))
     );
     let loadedCount = firstPage.count;
@@ -525,7 +525,7 @@
       firstPage.limit, firstPage.total, Number.MAX_SAFE_INTEGER
     );
     const pages = await fetchTrackPages(
-      token, TrueShuffle.likedPageURL, offsets,
+      token, TrueShuffle.likedPageURL, offsets, TrueShuffle.readLikedTrackPage,
       function (pageCount) {
         loadedCount += pageCount;
         onProgress(loadedCount, firstPage.total);
@@ -533,7 +533,7 @@
     );
     pages.push({offset: 0, count: firstPage.count, uris: firstPage.uris});
     const uris = TrueShuffle.assembleTrackPages(pages, firstPage.total);
-    const probe = TrueShuffle.readTrackPage(
+    const probe = TrueShuffle.readLikedTrackPage(
       await requestSpotify(token, TrueShuffle.likedPageURL(0))
     );
     if (probe.total !== firstPage.total) {
@@ -595,12 +595,9 @@
     try {
       const shuffled = TrueShuffle.shuffledURIs(uris, randomBelow);
       if (!overwriting) {
-        const userId = TrueShuffle.readUserId(
-          await requestSpotify(token, TrueShuffle.meEndpoint)
-        );
         const created = TrueShuffle.readCreatedPlaylist(await requestSpotify(
           token,
-          TrueShuffle.createPlaylistURL(userId),
+          TrueShuffle.createPlaylistURL(),
           {name: targetName, public: false, description: "Created by TrueShuffle"}
         ));
         target = {id: created.id, name: created.name, total: null, snapshotId: null};
