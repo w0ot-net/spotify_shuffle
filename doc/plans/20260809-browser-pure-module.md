@@ -186,9 +186,10 @@ model, or any host configuration.
    confirming the test fails, then restoring it.
 6. Update the README test command.
 7. Run validation and confirm the surviving integration tests pass unmodified.
-8. Commit and push, then deploy through the existing release workflow. The
-   pending `20260809-playlist-listing.md` deployment is not yet done and the
-   two can ship in one release.
+8. Commit and push. Deployment is a separate, gated step requiring explicit
+   user direction and the private operations runbook named in `AGENTS.md`. The
+   pending `20260809-playlist-listing.md` deployment is also outstanding, so
+   when it is authorized the two can ship in one release.
 
 ## Validation
 
@@ -233,7 +234,8 @@ authorization, per `AGENTS.md`. Absent that, the deterministic tests in
 `web/app_test.js` are the required evidence for those paths, and this plan does
 not treat live confirmation as a precondition for completion.
 
-Deployment validation:
+Deployment validation, only once deployment is separately authorized and
+performed under the private operations runbook:
 
 - Confirm `/pure.js` returns 200 with the JavaScript content type and the
   security headers on the deployed origin.

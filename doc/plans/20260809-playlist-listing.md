@@ -139,10 +139,9 @@ configuration.
    elements, then add the listing cases.
 5. Update the README Status, Browser security, and scopes text.
 6. Run the validation commands and inspect the diff for scope growth.
-7. Commit and push, then pull into `/opt/trueshuffle/repo`, build a verified
-   commit-addressed release, switch `/opt/trueshuffle/current` atomically with
-   rollback available, restart `trueshuffle.service`, and verify the live
-   service.
+7. Commit and push. Deployment is a separate, gated step: it requires explicit
+   user direction and the machine-local private operations runbook named in
+   `AGENTS.md`. Landing the code does not authorize it.
 
 ## Validation
 
@@ -171,7 +170,8 @@ Manual browser validation:
 - Confirm the browser console reports no CSP violation.
 - Confirm a user with no playlists sees the empty state rather than an error.
 
-Deployment validation:
+Deployment validation, only once deployment is separately authorized and
+performed under the private operations runbook:
 
 - Verify the release binary's embedded clean Git revision before activation.
 - Confirm `trueshuffle.service` is active with no restart loop.
@@ -218,9 +218,11 @@ Local validation, all passing:
 
 Remaining before this plan can be completed:
 
-- Deployment (step 7) and its validation. `/opt/trueshuffle` does not exist in
-  the development workspace, no host target is recorded in the repository, and
-  the workspace network cannot complete TLS to `shuffle.p.a-9.co`.
+- Deployment (step 7) and its validation. Production work now routes through
+  the private operations runbook named in `AGENTS.md`, and a repository task
+  does not by itself authorize a live deployment, so this step needs explicit
+  user direction. Independently, the development workspace has no
+  `/opt/trueshuffle` and cannot complete TLS to the public origin.
 - Manual browser validation against a live Spotify account, including an
   account with more than 50 playlists and an account with none. The paging,
   empty, failure, and selection paths are covered deterministically by
