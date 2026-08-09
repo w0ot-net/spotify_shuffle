@@ -281,6 +281,7 @@ function createHarness(options) {
   const logoutButton = new FakeElement(true);
   const playlistStatusElement = new FakeElement(true);
   const trackStatusElement = new FakeElement(true);
+  const trackProgressElement = new FakeElement(true);
   const playlistsElement = new FakeElement(true);
   const elements = {
     status: statusElement,
@@ -288,6 +289,7 @@ function createHarness(options) {
     logout: logoutButton,
     "playlist-status": playlistStatusElement,
     "track-status": trackStatusElement,
+    "track-progress": trackProgressElement,
     playlists: playlistsElement
   };
   const localStorage = options.localStorage || new FakeStorage();
@@ -368,6 +370,7 @@ function createHarness(options) {
     requests: requests,
     sessionStorage: sessionStorage,
     statusElement: statusElement,
+    trackProgressElement: trackProgressElement,
     trackStatusElement: trackStatusElement
   };
 }
@@ -618,7 +621,7 @@ test("selecting a playlist marks it and moves the mark on reselection", async ()
   await settle();
   assert.equal(buttons[0].getAttribute("aria-pressed"), "true");
   assert.equal(harness.playlistStatusElement.textContent, "Selected Morning.");
-  assert.equal(harness.trackStatusElement.textContent, "Loaded 1 track.");
+  assert.match(harness.trackStatusElement.textContent, /^Loaded 1 track in \d+\.\ds\.$/);
 
   buttons[1].click();
   await settle();
@@ -638,7 +641,7 @@ test("disconnecting clears a rendered playlist list and track state", async () =
   assert.equal(playlistButtons(harness).length, 1);
   playlistButtons(harness)[0].click();
   await settle();
-  assert.equal(harness.trackStatusElement.textContent, "Loaded 1 track.");
+  assert.match(harness.trackStatusElement.textContent, /^Loaded 1 track in \d+\.\ds\.$/);
 
   harness.logoutButton.click();
 
@@ -665,8 +668,9 @@ test("selecting a playlist reads every page and renders the count", async () => 
   playlistButtons(harness)[0].click();
   await settle();
 
-  assert.equal(harness.trackStatusElement.textContent, "Loaded 250 tracks.");
+  assert.match(harness.trackStatusElement.textContent, /^Loaded 250 tracks in \d+\.\ds\.$/);
   assert.equal(harness.trackStatusElement.hidden, false);
+  assert.equal(harness.trackProgressElement.hidden, true, "the bar hides once the load settles");
   const trackRequests = harness.requests.filter(
     (request) => request.url.startsWith("https://api.spotify.com/v1/playlists/")
   );
@@ -692,7 +696,9 @@ test("an empty playlist renders a zero count", async () => {
   playlistButtons(harness)[0].click();
   await settle();
 
-  assert.equal(harness.trackStatusElement.textContent, "Loaded 0 tracks.");
+  assert.match(harness.trackStatusElement.textContent, /^Loaded 0 tracks in \d+\.\ds\.$/);
+  assert.equal(harness.trackProgressElement.max, undefined,
+    "a zero-total read never shows the progress bar");
 });
 
 test("track pages dispatch through a bounded pool and assemble out of order", async () => {
@@ -728,17 +734,23 @@ test("track pages dispatch through a bounded pool and assemble out of order", as
   assert.deepEqual([...deferredByOffset.keys()], [1, 2, 3, 4, 5, 6]);
   assert.equal(harness.trackStatusElement.textContent, "Loading tracks...");
   assert.equal(playlistButtons(harness)[0].disabled, true);
+  // Page 0 also made progress determinate: server-truth max, one page done.
+  assert.equal(harness.trackProgressElement.hidden, false);
+  assert.equal(harness.trackProgressElement.max, 8);
+  assert.equal(harness.trackProgressElement.value, 1);
 
   deferredByOffset.get(3).resolve(trackPageResponse(1, 8, [uris[3]]));
   await settle();
   assert.ok(deferredByOffset.has(7), "a freed slot dispatches the next page");
+  assert.equal(harness.trackProgressElement.value, 2, "a completed page advances the bar");
 
   for (const offset of [7, 1, 6, 2, 5, 4]) {
     deferredByOffset.get(offset).resolve(trackPageResponse(1, 8, [uris[offset]]));
   }
   await settle();
 
-  assert.equal(harness.trackStatusElement.textContent, "Loaded 8 tracks.");
+  assert.match(harness.trackStatusElement.textContent, /^Loaded 8 tracks in \d+\.\ds\.$/);
+  assert.equal(harness.trackProgressElement.hidden, true);
   assert.equal(playlistButtons(harness)[0].disabled, false);
 });
 
@@ -771,6 +783,10 @@ test("a snapshot change during the read fails it and disturbs nothing else", asy
   assert.equal(harness.statusElement.textContent, "Spotify is connected in this browser.");
   assert.equal(harness.playlistStatusElement.textContent, "Selected Morning.");
   assert.equal(playlistButtons(harness)[0].disabled, false);
+  // max === 1 proves the bar appeared during the read; hidden proves the
+  // failed settle removed it.
+  assert.equal(harness.trackProgressElement.max, 1);
+  assert.equal(harness.trackProgressElement.hidden, true);
 });
 
 test("a track count short of the total fails the read", async () => {
@@ -836,7 +852,7 @@ test("re-selecting an unchanged playlist renders from cache with zero track requ
   playlistButtons(harness)[0].click();
   await settle();
 
-  assert.equal(harness.trackStatusElement.textContent, "Loaded 2 tracks.");
+  assert.match(harness.trackStatusElement.textContent, /^Loaded 2 tracks in \d+\.\ds\.$/);
   const stored = indexedDB.record("trueshuffle", "playlists", "steady");
   assert.equal(stored.snapshot_id, "snap-1");
   assert.deepEqual(plain(stored.uris), ["spotify:track:a", "spotify:track:b"]);
@@ -847,8 +863,42 @@ test("re-selecting an unchanged playlist renders from cache with zero track requ
   await settle();
 
   assert.equal(harness.requests.length, readRequests, "a cache hit issues zero requests");
-  assert.equal(harness.trackStatusElement.textContent, "Loaded 2 tracks.");
+  assert.equal(harness.trackStatusElement.textContent, "Loaded 2 tracks.",
+    "a cache hit renders the plain count with no duration");
   assert.equal(playlistButtons(harness)[0].disabled, false);
+});
+
+test("a cache hit never shows the progress bar", async () => {
+  const indexedDB = new FakeIndexedDB({
+    seed: {
+      trueshuffle: {
+        playlists: {
+          hit: {
+            snapshot_id: "snap-1",
+            uris: ["spotify:track:a", "spotify:track:b"],
+            cached_at: 1
+          }
+        }
+      }
+    }
+  });
+  const harness = createHarness({
+    indexedDB: indexedDB,
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
+    playlistHandler: () => playlistPage([
+      {id: "hit", name: "Morning", tracks: {total: 2}, snapshot_id: "snap-1"}
+    ])
+  });
+
+  await settle();
+  playlistButtons(harness)[0].click();
+  await settle();
+
+  assert.equal(harness.trackStatusElement.textContent, "Loaded 2 tracks.");
+  // No trackHandler is configured, so any track request would have failed
+  // the read; an untouched max proves the bar was never rendered at all.
+  assert.equal(harness.trackProgressElement.max, undefined);
+  assert.equal(harness.trackProgressElement.hidden, true);
 });
 
 test("a snapshot mismatch re-reads, stores, and reports added and removed counts", async () => {
@@ -879,9 +929,9 @@ test("a snapshot mismatch re-reads, stores, and reports added and removed counts
   playlistButtons(harness)[0].click();
   await settle();
 
-  assert.equal(
+  assert.match(
     harness.trackStatusElement.textContent,
-    "Loaded 3 tracks. 2 added, 2 removed since last read."
+    /^Loaded 3 tracks in \d+\.\ds\. 2 added, 2 removed since last read\.$/
   );
   const stored = indexedDB.record("trueshuffle", "playlists", "changed");
   assert.equal(stored.snapshot_id, "snap-new");
@@ -916,7 +966,8 @@ test("a membership-identical change renders the plain count", async () => {
   playlistButtons(harness)[0].click();
   await settle();
 
-  assert.equal(harness.trackStatusElement.textContent, "Loaded 2 tracks.");
+  assert.match(harness.trackStatusElement.textContent, /^Loaded 2 tracks in \d+\.\ds\.$/,
+    "a membership-identical change renders no added/removed suffix");
 });
 
 test("an unavailable cache degrades to an uncached read", async () => {
@@ -933,7 +984,7 @@ test("an unavailable cache degrades to an uncached read", async () => {
   playlistButtons(harness)[0].click();
   await settle();
 
-  assert.equal(harness.trackStatusElement.textContent, "Loaded 1 track.");
+  assert.match(harness.trackStatusElement.textContent, /^Loaded 1 track in \d+\.\ds\.$/);
   assert.equal(playlistButtons(harness)[0].disabled, false);
 });
 

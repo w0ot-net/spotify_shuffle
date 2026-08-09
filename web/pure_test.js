@@ -186,6 +186,29 @@ test("assembleTrackPages fails a count short of the reported total", () => {
   }
 });
 
+test("loadedTracksMessage composes count, duration, and changes", () => {
+  assert.equal(TrueShuffle.loadedTracksMessage(1, null, null), "Loaded 1 track.");
+  assert.equal(TrueShuffle.loadedTracksMessage(0, null, null), "Loaded 0 tracks.");
+  assert.equal(TrueShuffle.loadedTracksMessage(4212, 3760, null), "Loaded 4212 tracks in 3.8s.");
+  assert.equal(TrueShuffle.loadedTracksMessage(1, 0, null), "Loaded 1 track in 0.0s.");
+  assert.equal(TrueShuffle.loadedTracksMessage(2, 60049, null), "Loaded 2 tracks in 60.0s.");
+  assert.equal(TrueShuffle.loadedTracksMessage(2, -5, null), "Loaded 2 tracks in 0.0s.",
+    "a non-monotonic clock never renders a negative duration");
+  assert.equal(
+    TrueShuffle.loadedTracksMessage(3, 2100, {added: 2, removed: 1}),
+    "Loaded 3 tracks in 2.1s. 2 added, 1 removed since last read."
+  );
+  assert.equal(
+    TrueShuffle.loadedTracksMessage(3, 2100, {added: 0, removed: 0}),
+    "Loaded 3 tracks in 2.1s.",
+    "a membership-identical change renders the plain form"
+  );
+  assert.equal(
+    TrueShuffle.loadedTracksMessage(2, null, {added: 1, removed: 0}),
+    "Loaded 2 tracks. 1 added, 0 removed since last read."
+  );
+});
+
 test("validTrackCacheRecord requires the exact record shape", () => {
   const valid = {
     snapshot_id: "snap-1",

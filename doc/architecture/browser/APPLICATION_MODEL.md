@@ -53,8 +53,9 @@ The page-state vocabulary the lifecycle renders:
   without a reconnect button);
 - playlist states: loading, listed, empty account, and failure, each a
   distinct rendered message;
-- track states: loading, loaded count, and failure, rendered in their own
-  status line.
+- track states: loading (with a determinate progress element during a
+  network read), loaded count with the read's elapsed time, and failure,
+  rendered in their own status line.
 
 Selecting a playlist records `{id, name}` in module-scope page state, marks
 the chosen button with `aria-pressed`, and loads the playlist's ordered
@@ -63,9 +64,15 @@ listing's renders with zero track requests, and otherwise the read protocol
 the [Spotify integration](../integration/SPOTIFY_INTEGRATION.md) page owns
 runs and its verified result is stored (see the
 [data model](DATA_MODEL.md)). When a re-read replaces a cached record, the
-membership difference renders as added and removed counts. The playlist
-buttons are disabled until the load settles, so one load runs at a time
-without cancellation machinery. Either path lands the list in module-scope
+membership difference renders as added and removed counts. A network read
+shows a determinate `<progress>` element once page 0 reveals the total:
+its maximum is the server-reported total, each completed page advances it
+by that page's raw item count, and it hides when the load settles either
+way. The numbers stay out of the `aria-live` status text so screen readers
+are not spammed per page, and the loaded message reports the elapsed
+seconds; a cache hit renders instantly with neither bar nor duration. The
+playlist buttons are disabled until the load settles, so one load runs at
+a time without cancellation machinery. Either path lands the list in module-scope
 `loadedTracks` -- `{id, snapshotId, uris}` -- the attachment point for
 shuffle generation (planned). A failed read clears `loadedTracks`, renders
 the failure in the track status line, and leaves the listing, selection,

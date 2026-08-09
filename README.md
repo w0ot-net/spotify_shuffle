@@ -25,7 +25,8 @@ can connect and disconnect Spotify in one browser, and lists the connected
 account's playlists so one can be selected. Selecting a playlist reads its
 ordered track URIs -- concurrently across pages, guarded by a snapshot check
 that fails the read if the playlist changes mid-flight -- and shows the track
-count. Track lists are cached in IndexedDB and validated with Spotify
+count, with a live progress bar during the pull and the elapsed time in the
+result. Track lists are cached in IndexedDB and validated with Spotify
 snapshots, so re-selecting an unchanged playlist issues no track requests,
 and a changed playlist is re-read and reports how many tracks were added and
 removed since the last read. It does not yet modify any playlist.

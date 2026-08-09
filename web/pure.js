@@ -171,6 +171,22 @@ var TrueShuffle = (function () {
     return {added: added, removed: removed};
   }
 
+  // The full loaded-tracks message: plain count for a cache hit (null
+  // elapsed), one-decimal duration for a network read, and the membership
+  // difference when a prior record existed and something changed.
+  function loadedTracksMessage(count, elapsedMilliseconds, changes) {
+    let message = "Loaded " + count + (count === 1 ? " track" : " tracks");
+    if (elapsedMilliseconds !== null) {
+      message += " in " + (Math.max(0, elapsedMilliseconds) / 1000).toFixed(1) + "s";
+    }
+    message += ".";
+    if (changes && (changes.added !== 0 || changes.removed !== 0)) {
+      message += " " + changes.added + " added, " + changes.removed +
+        " removed since last read.";
+    }
+    return message;
+  }
+
   function assembleTrackPages(pages, total) {
     // Sorting by offset makes assembly independent of completion order.
     const ordered = pages.slice().sort((a, b) => a.offset - b.offset);
@@ -193,6 +209,7 @@ var TrueShuffle = (function () {
     assembleTrackPages: assembleTrackPages,
     buildTokenRecord: buildTokenRecord,
     countTrackChanges: countTrackChanges,
+    loadedTracksMessage: loadedTracksMessage,
     playlistLabel: playlistLabel,
     playlistSnapshotURL: playlistSnapshotURL,
     playlistsEndpoint: playlistsEndpoint,

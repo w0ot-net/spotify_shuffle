@@ -28,6 +28,7 @@
   const logoutButton = document.getElementById("logout");
   const playlistStatusElement = document.getElementById("playlist-status");
   const trackStatusElement = document.getElementById("track-status");
+  const trackProgressElement = document.getElementById("track-progress");
   const playlistsElement = document.getElementById("playlists");
   let publicConfig = null;
   let selectedPlaylist = null;
@@ -218,6 +219,18 @@
     trackStatusElement.hidden = false;
   }
 
+  // Progress is determinate from the moment it appears: the maximum is the
+  // server-reported total and every advance is a completed page's raw item
+  // count. The aria-live status text stays quiet while the bar moves.
+  function renderTrackProgress(loadedCount, total) {
+    if (total <= 0) {
+      return;
+    }
+    trackProgressElement.max = total;
+    trackProgressElement.value = loadedCount;
+    trackProgressElement.hidden = false;
+  }
+
   function clearPlaylists() {
     selectedPlaylist = null;
     loadedTracks = null;
@@ -228,6 +241,7 @@
     playlistStatusElement.hidden = true;
     trackStatusElement.textContent = "";
     trackStatusElement.hidden = true;
+    trackProgressElement.hidden = true;
   }
 
   async function requestSpotify(token, url) {
@@ -264,7 +278,7 @@
     }
   }
 
-  async function fetchTrackPages(token, playlistId, offsets) {
+  async function fetchTrackPages(token, playlistId, offsets, onPage) {
     const pages = [];
     let nextIndex = 0;
     let failure = null;
@@ -279,6 +293,7 @@
             await requestSpotify(token, TrueShuffle.trackPageURL(playlistId, offset))
           );
           pages.push({offset: offset, count: page.count, uris: page.uris});
+          onPage(page.count);
         } catch (error) {
           failure = failure || error;
         }
@@ -298,15 +313,20 @@
   // Pin the playlist version, fetch every page, then verify the count and
   // that the version never moved; a mutating playlist fails the read rather
   // than silently assembling a corrupted order.
-  async function readPlaylistTracks(token, playlistId) {
+  async function readPlaylistTracks(token, playlistId, onProgress) {
     const pinnedSnapshot = TrueShuffle.readPlaylistSnapshot(
       await requestSpotify(token, TrueShuffle.playlistSnapshotURL(playlistId))
     );
     const firstPage = TrueShuffle.readTrackPage(
       await requestSpotify(token, TrueShuffle.trackPageURL(playlistId, 0))
     );
+    let loadedCount = firstPage.count;
+    onProgress(loadedCount, firstPage.total);
     const offsets = TrueShuffle.remainingTrackOffsets(firstPage.limit, firstPage.total);
-    const pages = await fetchTrackPages(token, playlistId, offsets);
+    const pages = await fetchTrackPages(token, playlistId, offsets, function (pageCount) {
+      loadedCount += pageCount;
+      onProgress(loadedCount, firstPage.total);
+    });
     pages.push({offset: 0, count: firstPage.count, uris: firstPage.uris});
     const uris = TrueShuffle.assembleTrackPages(pages, firstPage.total);
     const confirmedSnapshot = TrueShuffle.readPlaylistSnapshot(
@@ -398,10 +418,6 @@
     }
   }
 
-  function trackCountMessage(count) {
-    return "Loaded " + count + (count === 1 ? " track." : " tracks.");
-  }
-
   async function loadTracks(token, playlist) {
     loadedTracks = null;
     setPlaylistButtonsDisabled(true);
@@ -413,25 +429,23 @@
       if (cached !== null && playlist.snapshotId !== null &&
           cached.snapshot_id === playlist.snapshotId) {
         loadedTracks = {id: playlist.id, snapshotId: cached.snapshot_id, uris: cached.uris};
-        renderTrackStatus(trackCountMessage(cached.uris.length));
+        renderTrackStatus(TrueShuffle.loadedTracksMessage(cached.uris.length, null, null));
         return;
       }
 
-      const read = await readPlaylistTracks(token, playlist.id);
+      const readStart = Date.now();
+      const read = await readPlaylistTracks(token, playlist.id, renderTrackProgress);
+      const elapsedMilliseconds = Date.now() - readStart;
       // Disconnecting mid-read cleared the page; drop the late result.
       if (!selectionActive(playlist)) {
         return;
       }
       loadedTracks = {id: playlist.id, snapshotId: read.snapshotId, uris: read.uris};
-      let message = trackCountMessage(read.uris.length);
-      if (cached !== null) {
-        const changes = TrueShuffle.countTrackChanges(cached.uris, read.uris);
-        if (changes.added !== 0 || changes.removed !== 0) {
-          message += " " + changes.added + " added, " + changes.removed +
-            " removed since last read.";
-        }
-      }
-      renderTrackStatus(message);
+      renderTrackStatus(TrueShuffle.loadedTracksMessage(
+        read.uris.length,
+        elapsedMilliseconds,
+        cached !== null ? TrueShuffle.countTrackChanges(cached.uris, read.uris) : null
+      ));
       await writeTrackCache(playlist.id, {
         snapshot_id: read.snapshotId,
         uris: read.uris,
@@ -445,6 +459,7 @@
         ? "This playlist changed while loading. Select it again."
         : "Tracks could not be loaded. Select the playlist again to retry.");
     } finally {
+      trackProgressElement.hidden = true;
       setPlaylistButtonsDisabled(false);
     }
   }
