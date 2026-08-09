@@ -212,7 +212,7 @@ change.
 - Each topic page owns one concern, opens with its ownership statement, links
   back to the index, and carries a revision date.
 - Every statement in the pages is checkable against head; planned behavior
-  appears only in the two marked statements.
+  is limited to the two permitted facts, every mention marked planned.
 - No page contains runbook-only access details.
 - All links resolve, all files are ASCII, and the root `README.md` and
   `AGENTS.md` point contributors at the tree.
