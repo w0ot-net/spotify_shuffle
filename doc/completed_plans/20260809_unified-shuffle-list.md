@@ -246,3 +246,16 @@ presence and absence (76 pass, 0 fail under the same validation set).
 
 Deployment under the standing direction is recorded below with the
 companion derived-target plan.
+Deployment, completed 2026-08-09 under the standing deployment direction
+and the private operations runbook: shipped as release
+`658d9cae70a85312202fadfa7398cb12f827b479` together with the companion
+plan and the dedupe addendum `658d9ca`. Embedded `vcs.revision` matches
+and `vcs.modified` is false; binary SHA-256
+`409f74c9538d618833494ce602ae670d9cc2368b080043fca0ec9f73d6a30f73`. The
+full Go and JavaScript suites passed on the host (76 of 76 browser tests
+via direct `node` execution). The previous release `6ef7720...` was
+retained and `current` switched atomically; after restart the service is
+active with zero restarts, loopback and public health are green, the
+unified chain is served on the public origin with no liked-section
+leftovers, and no warning-or-higher journal entries appeared. Live
+confirmation in a real browser is the user's next action.
