@@ -143,3 +143,33 @@ only.
   never claims success; a cap-exceeding or empty list writes nothing.
 - No request in the flow modifies any pre-existing playlist.
 - Purity grep clean; every prior test passes unmodified.
+
+## Execution Notes
+
+Executed 2026-08-09. Implementation commit `2e4f37a`.
+
+Implemented as planned: `shuffledURIs` (Fisher-Yates over injected
+randomness with index validation), `uriBatches`, the three write-path URL
+builders, `readUserId`, `readCreatedPlaylist`, and `readPlaylistTotal` in
+`web/pure.js`; JSON `POST` support in `requestSpotify`, rejection-sampled
+`randomBelow`, the create-and-append flow with progress and elapsed time,
+and the shuffle button lifecycle in `web/app.js`; the `liked-shuffle`
+element and Go marker; the integration, application-model,
+authorization-model, and README updates.
+
+Deviations: the success-message composition landed as a pure
+`createdPlaylistMessage` with direct tests -- the plan named only readers
+and builders, but the message carries the same duration-rounding logic the
+loaded-message already keeps pure, so it followed the same rule.
+
+Validation, all passing: `gofmt -l main.go main_test.go` (no output),
+`go test ./...`, `go vet ./...`, `node --check` on both web scripts,
+`node --test web/pure_test.js web/app_test.js` (70 pass, 0 fail),
+`git diff --check`, and the inverted purity grep. The harness proves the
+single-create, batch sizes and order, the verification request, the
+incomplete-playlist failure naming, the cap refusing to write, and the
+empty-library gating.
+
+Live confirmation -- reconnect, load a real library, create a shuffled
+playlist, and open it in Spotify -- follows the deployment recorded
+below.
