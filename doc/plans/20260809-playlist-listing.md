@@ -195,3 +195,33 @@ No Spotify playlist is created, modified, or deleted during validation.
   playlists are unread.
 - The deployed service is healthy and the existing connect, callback, reload,
   and disconnect flows continue to work.
+
+## Execution Status
+
+Implementation landed in `eae9283` (`List Spotify playlists on the page`).
+Steps 1 through 6 of the sequence are complete; step 7 is not.
+
+Implemented as planned, with one bounded correction: `fetchPlaylists` requires
+the `next` cursor to start with the `/v1/me/playlists` endpoint prefix before
+following it. The plan said to follow the cursor while it is a non-empty
+string, which would send the bearer token to whatever URL the response names.
+The prefix check keeps the paging design and closes that exposure.
+
+Local validation, all passing:
+
+- `gofmt -l main.go main_test.go`: no output.
+- `go test ./...`: ok.
+- `go vet ./...`: ok.
+- `node --check web/app.js`, `node --check web/app_test.js`: ok.
+- `node --test web/app_test.js`: 16 passed, 0 failed.
+- `git diff --check`: clean.
+
+Remaining before this plan can be completed:
+
+- Deployment (step 7) and its validation. `/opt/trueshuffle` does not exist in
+  the development workspace, no host target is recorded in the repository, and
+  the workspace network cannot complete TLS to `shuffle.p.a-9.co`.
+- Manual browser validation against a live Spotify account, including an
+  account with more than 50 playlists and an account with none. The paging,
+  empty, failure, and selection paths are covered deterministically by
+  `web/app_test.js`, but no live account has been used.
