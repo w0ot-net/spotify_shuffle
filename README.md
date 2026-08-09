@@ -31,10 +31,11 @@ use and rewritten in place on every rerun, so repeat shuffles never
 accumulate playlists. Playlist track lists are cached in IndexedDB and
 validated with Spotify snapshots, so re-shuffling an unchanged playlist
 issues no track reads and a changed one reports how many tracks were added
-and removed. Liked Songs is read through the library API each time (it is
-not a playlist, has no snapshot, and cannot be reordered in place;
-connections made before this feature show a one-time reconnect on its row to
-grant the library scope). The app hides its own derived playlists from the
+and removed. Liked Songs is cached the same way but validated with a
+fingerprint -- the library's size plus its newest page -- since it is not
+a playlist and has no snapshot; re-shuffling an unchanged library costs a
+single request (connections made before this feature show a one-time
+reconnect on its row to grant the library scope). The app hides its own derived playlists from the
 list and shows each playlist name once (a note counts any hidden duplicates,
 which become shuffleable when renamed in Spotify), and the only playlists it
 ever writes are the ones it derives with the " TrueShuffle" suffix; source

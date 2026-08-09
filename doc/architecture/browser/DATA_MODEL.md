@@ -6,20 +6,25 @@ This page owns the browser's persistent track data: the IndexedDB cache,
 its record shape, the validity rule, and the degrade and disconnect
 postures. Return to the [architecture index](../README.md).
 
-## One store, one record shape
+## One store, two record shapes
 
 IndexedDB database `trueshuffle` (version 1) holds one object store,
-`playlists`, keyed by playlist id. A record is
+`playlists`. A playlist record, keyed by playlist id, is
 `{snapshot_id, uris, cached_at}`: the ordered track URI list a verified
 read produced, the `snapshot_id` it was read under, and the write time.
+The Liked Songs record, keyed by the `liked-songs` sentinel (Spotify ids
+never contain a hyphen, so the key spaces cannot collide), is
+`{total, head, uris, cached_at}`: the library's URI list, the total it
+was read at, and `head`, the page-0 URI list it was read under.
 `web/app.js` owns the store behind small promise wrappers -- open, get,
 put, and database delete; there is no generic cache layer or schema
-registry. Records are validated on read by the pure
-`validTrackCacheRecord`; an invalid or unreadable record is a cache miss.
+registry. Each reader validates its own shape on read with the pure
+`validTrackCacheRecord` or `validLikedCacheRecord`; an invalid or
+unreadable record is a cache miss.
 
-## Snapshot equality is the entire validity rule
+## Snapshot equality is the playlist validity rule
 
-A cached record is current if and only if its `snapshot_id` equals the
+A cached playlist record is current if and only if its `snapshot_id` equals the
 snapshot the listing reported for that playlist at page load. No
 timestamps, no TTLs, no partial invalidation: Spotify changes the snapshot
 on every playlist mutation (see the
@@ -31,6 +36,23 @@ the old list is reported as duplicate-aware added and removed counts. The
 listing snapshot itself ages while the page sits open, which costs at
 worst an unnecessary re-read -- the same freshness contract the listing
 has.
+
+## The liked fingerprint is an ordering argument
+
+The library has no snapshot, so its validity rule is the fingerprint
+`likedRecordMatches` checks: the record is current if and only if its
+`total` and its `head` equal the total and URI list of a freshly fetched
+page 0. This rests on documented ordering behavior rather than a version
+stamp -- saved tracks return newest-first by save time and cannot be
+reordered -- so a removal moves the total, and an addition moves the head
+even when a balanced removal holds the count still. The one mutation the
+fingerprint cannot see is an unlike immediately reversed for the same
+track, which is membership-neutral. Because page 0 is also the request a
+full read starts with, a fingerprint match costs exactly one request, and
+the read's closing probe re-checks the same fingerprint so a stored
+record is verified current at read end. A mismatch is not an error; it is
+the normal signal to re-read, after which the membership difference is
+reported exactly as playlist re-reads report it.
 
 ## The cache degrades; reads fail
 

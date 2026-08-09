@@ -270,6 +270,52 @@ test("validTrackCacheRecord requires the exact record shape", () => {
     Object.assign({}, valid, {cached_at: "soon"})), false);
 });
 
+test("validLikedCacheRecord requires the exact record shape", () => {
+  const valid = {
+    total: 2,
+    head: ["spotify:track:a", "spotify:track:b"],
+    uris: ["spotify:track:a", "spotify:track:b"],
+    cached_at: now
+  };
+  assert.equal(TrueShuffle.validLikedCacheRecord(valid), true);
+  assert.equal(TrueShuffle.validLikedCacheRecord(
+    Object.assign({}, valid, {total: 0, head: [], uris: []})), true);
+  assert.equal(TrueShuffle.validLikedCacheRecord(null), false);
+  assert.equal(TrueShuffle.validLikedCacheRecord(undefined), false);
+  assert.equal(TrueShuffle.validLikedCacheRecord(
+    Object.assign({}, valid, {total: -1})), false);
+  assert.equal(TrueShuffle.validLikedCacheRecord(
+    Object.assign({}, valid, {total: 2.5})), false);
+  assert.equal(TrueShuffle.validLikedCacheRecord(
+    Object.assign({}, valid, {head: "spotify:track:a"})), false);
+  assert.equal(TrueShuffle.validLikedCacheRecord(
+    Object.assign({}, valid, {head: ["spotify:track:a", 7]})), false);
+  assert.equal(TrueShuffle.validLikedCacheRecord(
+    Object.assign({}, valid, {uris: ["spotify:track:a", 7]})), false);
+  assert.equal(TrueShuffle.validLikedCacheRecord(
+    Object.assign({}, valid, {cached_at: Infinity})), false);
+});
+
+test("likedRecordMatches compares the total and the newest page exactly", () => {
+  const record = {total: 60, head: ["spotify:track:a", "spotify:track:b"]};
+  const samePage = {total: 60, uris: ["spotify:track:a", "spotify:track:b"]};
+  assert.equal(TrueShuffle.likedRecordMatches(record, samePage), true);
+  // A removal moves the total.
+  assert.equal(TrueShuffle.likedRecordMatches(
+    record, {total: 59, uris: ["spotify:track:a", "spotify:track:b"]}), false);
+  // A count-neutral swap moves the head even though the total held still.
+  assert.equal(TrueShuffle.likedRecordMatches(
+    record, {total: 60, uris: ["spotify:track:c", "spotify:track:a"]}), false);
+  // A re-like reorders the head without changing membership; that is a
+  // change of the newest page and invalidates.
+  assert.equal(TrueShuffle.likedRecordMatches(
+    record, {total: 60, uris: ["spotify:track:b", "spotify:track:a"]}), false);
+  assert.equal(TrueShuffle.likedRecordMatches(
+    record, {total: 60, uris: ["spotify:track:a"]}), false);
+  const empty = {total: 0, head: []};
+  assert.equal(TrueShuffle.likedRecordMatches(empty, {total: 0, uris: []}), true);
+});
+
 test("countTrackChanges counts a duplicate-aware multiset difference", () => {
   const changes = (previous, current) => plain(TrueShuffle.countTrackChanges(previous, current));
   assert.deepEqual(changes([], []), {added: 0, removed: 0});

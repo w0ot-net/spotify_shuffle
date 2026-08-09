@@ -262,6 +262,28 @@ var TrueShuffle = (function () {
       typeof value.cached_at === "number" && Number.isFinite(value.cached_at);
   }
 
+  function validLikedCacheRecord(value) {
+    return value !== null &&
+      typeof value === "object" &&
+      Number.isInteger(value.total) && value.total >= 0 &&
+      Array.isArray(value.head) &&
+      value.head.every(function (uri) { return typeof uri === "string"; }) &&
+      Array.isArray(value.uris) &&
+      value.uris.every(function (uri) { return typeof uri === "string"; }) &&
+      typeof value.cached_at === "number" && Number.isFinite(value.cached_at);
+  }
+
+  // The liked-library fingerprint: the total plus the newest page's URIs.
+  // Saved tracks order newest-first and cannot be reordered, so a removal
+  // moves the total and an addition moves the head even when a balanced
+  // removal holds the count still. The one invisible mutation is an unlike
+  // reversed for the same track, which is membership-neutral.
+  function likedRecordMatches(record, firstPage) {
+    return record.total === firstPage.total &&
+      record.head.length === firstPage.uris.length &&
+      record.head.every(function (uri, index) { return uri === firstPage.uris[index]; });
+  }
+
   // Playlists may contain the same URI more than once, so the difference is
   // a multiset count: added is the surplus in the new list, removed the
   // surplus in the old. A reorder is zero/zero.
@@ -381,8 +403,9 @@ var TrueShuffle = (function () {
     emptySourceMessage: emptySourceMessage,
     findPlaylistByName: findPlaylistByName,
     hasScope: hasScope,
-    likedRowLabel: likedRowLabel,
     likedPageURL: likedPageURL,
+    likedRecordMatches: likedRecordMatches,
+    likedRowLabel: likedRowLabel,
     likedSourceName: likedSourceName,
     loadedTracksMessage: loadedTracksMessage,
     maxPlaylistTracks: maxPlaylistTracks,
@@ -404,6 +427,7 @@ var TrueShuffle = (function () {
     trackChangesSuffix: trackChangesSuffix,
     trackPageURL: trackPageURL,
     uriBatches: uriBatches,
+    validLikedCacheRecord: validLikedCacheRecord,
     validPlaylistCursor: validPlaylistCursor,
     validTokenRecord: validTokenRecord,
     validTrackCacheRecord: validTrackCacheRecord

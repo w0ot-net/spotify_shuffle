@@ -405,14 +405,14 @@
   // The cache is an optimization: an unavailable or unreadable store is a
   // miss and a failed write leaves the rendered result standing, so a
   // browser without IndexedDB still reads playlists.
-  async function readTrackCache(playlistId) {
+  async function readTrackCache(key, valid) {
     try {
       const database = await openTrackCache();
       try {
         const record = await new Promise(function (resolve, reject) {
           const request = database.transaction(trackCacheStoreName, "readonly")
             .objectStore(trackCacheStoreName)
-            .get(playlistId);
+            .get(key);
           request.onsuccess = function () {
             resolve(request.result);
           };
@@ -420,7 +420,7 @@
             reject(request.error);
           };
         });
-        return TrueShuffle.validTrackCacheRecord(record) ? record : null;
+        return valid(record) ? record : null;
       } finally {
         database.close();
       }
@@ -470,7 +470,7 @@
     loadedTracks = null;
     renderTrackStatus("Loading tracks...");
     try {
-      const cached = await readTrackCache(playlist.id);
+      const cached = await readTrackCache(playlist.id, TrueShuffle.validTrackCacheRecord);
       // Snapshot equality is the entire validity rule: a matching record is
       // the full ordered list, so a hit issues zero track requests.
       if (cached !== null && playlist.snapshotId !== null &&
@@ -512,13 +512,13 @@
     }
   }
 
-  // The library has no snapshot, so the page-0 total is pinned and a final
-  // probe must report it unchanged; with the summed raw-count check this is
-  // the strongest torn-read detection the endpoint offers.
-  async function readLikedTracks(token, onProgress) {
-    const firstPage = TrueShuffle.readLikedTrackPage(
-      await requestSpotify(token, TrueShuffle.likedPageURL(0))
-    );
+  // The library has no snapshot, so the read verifies against its opening
+  // page: the summed raw count must match the total, and the closing probe
+  // must reproduce the opening fingerprint -- total plus newest page -- so
+  // a mid-read membership change fails the read even when it holds the
+  // count still. The caller supplies page 0, already fetched for the
+  // fingerprint check.
+  async function readLikedTracks(token, firstPage, onProgress) {
     let loadedCount = firstPage.count;
     onProgress(loadedCount, firstPage.total);
     const offsets = TrueShuffle.remainingTrackOffsets(
@@ -536,29 +536,55 @@
     const probe = TrueShuffle.readLikedTrackPage(
       await requestSpotify(token, TrueShuffle.likedPageURL(0))
     );
-    if (probe.total !== firstPage.total) {
+    if (!TrueShuffle.likedRecordMatches({total: firstPage.total, head: firstPage.uris}, probe)) {
       throw new TrueShuffle.PlaylistChangedError("the library changed while it was read");
     }
     return uris;
   }
 
-  // The Liked Songs counterpart of loadPlaylistSource: no cache, since the
-  // library has no snapshot to validate a record against.
+  // The Liked Songs counterpart of loadPlaylistSource. The library has no
+  // snapshot, so validity is the fingerprint likedRecordMatches checks --
+  // total plus newest page -- compared against the page-0 fetch a read
+  // needs anyway, which makes a hit cost exactly one request.
   async function loadLikedSource(token, source) {
     loadedTracks = null;
     renderTrackStatus("Loading Liked Songs...");
     const loadStart = Date.now();
     try {
-      const uris = await readLikedTracks(token, renderTrackProgress);
-      // Disconnecting mid-read cleared the page; drop the late result.
+      const cached = await readTrackCache(source.id, TrueShuffle.validLikedCacheRecord);
+      const firstPage = TrueShuffle.readLikedTrackPage(
+        await requestSpotify(token, TrueShuffle.likedPageURL(0))
+      );
+      // Disconnecting mid-fetch cleared the page; drop the late result.
       if (!selectionActive(source)) {
         return null;
       }
+      if (cached !== null && TrueShuffle.likedRecordMatches(cached, firstPage)) {
+        loadedTracks = {id: source.id, snapshotId: null, uris: cached.uris};
+        renderTrackStatus(TrueShuffle.loadedTracksMessage(cached.uris.length, null, null));
+        return {uris: cached.uris, changes: null};
+      }
+
+      const uris = await readLikedTracks(token, firstPage, renderTrackProgress);
+      if (!selectionActive(source)) {
+        return null;
+      }
+      const changes = cached !== null
+        ? TrueShuffle.countTrackChanges(cached.uris, uris)
+        : null;
       loadedTracks = {id: source.id, snapshotId: null, uris: uris};
       renderTrackStatus(TrueShuffle.loadedTracksMessage(
-        uris.length, Date.now() - loadStart, null
+        uris.length, Date.now() - loadStart, changes
       ));
-      return {uris: uris, changes: null};
+      // The probe proved the fingerprint still true at read end, so the
+      // stored record never begins life stale.
+      await writeTrackCache(source.id, {
+        total: firstPage.total,
+        head: firstPage.uris,
+        uris: uris,
+        cached_at: Date.now()
+      });
+      return {uris: uris, changes: changes};
     } catch (error) {
       if (!selectionActive(source)) {
         return null;

@@ -1483,3 +1483,149 @@ test("duplicate-named rows dedupe with a note; unique listings render none", asy
       "2 playlists with duplicate names are hidden; rename them in Spotify to shuffle them."
   );
 });
+
+function likedRecordSeed(record) {
+  return {seed: {trueshuffle: {playlists: {"liked-songs": record}}}};
+}
+
+test("a liked fingerprint match shuffles from cache with one library request", async () => {
+  const uris = [];
+  for (let index = 0; index < 120; index += 1) {
+    uris.push("spotify:track:liked" + index);
+  }
+  const indexedDB = new FakeIndexedDB(likedRecordSeed({
+    total: 120,
+    head: uris.slice(0, 50),
+    uris: uris,
+    cached_at: 1
+  }));
+  const backend = makeWriteBackend();
+  const harness = createHarness(Object.assign({
+    indexedDB: indexedDB,
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    likedHandler: steadyLikedHandler(50, uris)
+  }, backendOptions(backend)));
+
+  await settle();
+  playlistButtons(harness)[0].click();
+  await settle();
+
+  const likedRequests = harness.requests
+    .filter((request) => request.url.startsWith("https://api.spotify.com/v1/me/tracks"))
+    .map((request) => request.url);
+  assert.deepEqual(likedRequests, [likedURL(0)],
+    "a fingerprint match needs only the page-0 fetch");
+  const written = backend.writes.map((write) => write.uris).flat();
+  assert.deepEqual(written.slice().sort(), uris.slice().sort(),
+    "the cached URIs reach the write");
+  assert.match(
+    harness.trackStatusElement.textContent,
+    /^Created "Liked Songs TrueShuffle" with 120 tracks in \d+\.\ds\.$/
+  );
+});
+
+test("a count-neutral library change re-reads and reports the difference", async () => {
+  const indexedDB = new FakeIndexedDB(likedRecordSeed({
+    total: 2,
+    head: ["spotify:track:a", "spotify:track:b"],
+    uris: ["spotify:track:a", "spotify:track:b"],
+    cached_at: 1
+  }));
+  const backend = makeWriteBackend();
+  const harness = createHarness(Object.assign({
+    indexedDB: indexedDB,
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    likedHandler: steadyLikedHandler(50, ["spotify:track:c", "spotify:track:b"])
+  }, backendOptions(backend)));
+
+  await settle();
+  playlistButtons(harness)[0].click();
+  await settle();
+
+  assert.match(
+    harness.trackStatusElement.textContent,
+    /^Created "Liked Songs TrueShuffle" with 2 tracks in \d+\.\ds\. 1 added, 1 removed since last read\.$/,
+    "the swap that held the count still is detected and reported"
+  );
+  const stored = indexedDB.record("trueshuffle", "playlists", "liked-songs");
+  assert.equal(stored.total, 2);
+  assert.deepEqual(plain(stored.head), ["spotify:track:c", "spotify:track:b"]);
+  assert.deepEqual(plain(stored.uris), ["spotify:track:c", "spotify:track:b"]);
+  assert.equal(typeof stored.cached_at, "number");
+});
+
+test("a verified liked read stores a record the next click hits", async () => {
+  const indexedDB = new FakeIndexedDB();
+  const backend = makeWriteBackend();
+  const harness = createHarness(Object.assign({
+    indexedDB: indexedDB,
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    likedHandler: steadyLikedHandler(50, ["spotify:track:a", "spotify:track:b"])
+  }, backendOptions(backend)));
+
+  await settle();
+  playlistButtons(harness)[0].click();
+  await settle();
+  assert.match(harness.trackStatusElement.textContent, /^Created /);
+  const coldRequests = harness.requests
+    .filter((request) => request.url.startsWith("https://api.spotify.com/v1/me/tracks")).length;
+  assert.equal(coldRequests, 2, "page 0 and the verification probe");
+
+  playlistButtons(harness)[0].click();
+  await settle();
+
+  assert.equal(
+    harness.requests.filter(
+      (request) => request.url.startsWith("https://api.spotify.com/v1/me/tracks")
+    ).length,
+    coldRequests + 1,
+    "the second click hits the stored record after one page-0 fetch"
+  );
+  assert.match(harness.trackStatusElement.textContent, /^Updated /);
+});
+
+test("a mid-read head drift with a steady total fails the read", async () => {
+  let pageZeroCalls = 0;
+  const harness = createHarness({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    likedHandler: (url) => {
+      if (url === likedURL(0)) {
+        pageZeroCalls += 1;
+        return savedTrackPageResponse(50, 1,
+          [pageZeroCalls === 1 ? "spotify:track:a" : "spotify:track:b"]);
+      }
+      throw new Error("unexpected liked request: " + url);
+    }
+  });
+
+  await settle();
+  playlistButtons(harness)[0].click();
+  await settle();
+
+  assert.equal(
+    harness.trackStatusElement.textContent,
+    "Liked Songs changed while loading. Select it again."
+  );
+});
+
+test("an unavailable cache degrades the liked read to the full pull", async () => {
+  const backend = makeWriteBackend();
+  const harness = createHarness(Object.assign({
+    indexedDB: new FakeIndexedDB({unavailable: true}),
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    likedHandler: steadyLikedHandler(50, ["spotify:track:a"])
+  }, backendOptions(backend)));
+
+  await settle();
+  playlistButtons(harness)[0].click();
+  await settle();
+
+  assert.deepEqual(
+    harness.requests
+      .filter((request) => request.url.startsWith("https://api.spotify.com/v1/me/tracks"))
+      .map((request) => request.url),
+    [likedURL(0), likedURL(0)],
+    "the read proceeds uncached"
+  );
+  assert.match(harness.trackStatusElement.textContent, /^Created /);
+});

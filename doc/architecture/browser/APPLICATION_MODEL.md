@@ -88,8 +88,10 @@ reaches the write with zero track requests, and otherwise the read
 protocol the [Spotify integration](../integration/SPOTIFY_INTEGRATION.md)
 page owns runs and its verified result is stored (see the
 [data model](DATA_MODEL.md)). The Liked Songs row loads through the
-library read and skips the cache, since the library has no snapshot to
-validate a record against. A loaded source with zero tracks reports that
+library read, cache-first like playlist rows but under the fingerprint
+validity rule the [data model](DATA_MODEL.md) owns, since the library has
+no snapshot: a fingerprint match costs one page-0 request and reuses the
+cached URIs. A loaded source with zero tracks reports that
 and writes nothing; otherwise the chain Fisher-Yates-shuffles the URIs
 with crypto-backed unbiased randomness (the pure shuffle takes the
 randomness as an argument) and writes the source's derived target --

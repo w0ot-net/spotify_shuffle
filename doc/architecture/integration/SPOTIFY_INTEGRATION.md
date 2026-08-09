@@ -69,10 +69,19 @@ no `snapshot_id`, and has no reorder API. `/v1/me/tracks` supports no
 `fields` filtering, so full track objects arrive and only `track.uri` is
 consumed; the page maximum is 50 and the library has no 10,000-item cap
 (Spotify removed it in 2020), so the offset computation takes a
-caller-supplied bound. With no snapshot, the read pins the page-0 `total`,
+caller-supplied bound.
+
+The library read is cache-first: the cached record's fingerprint -- its
+`total` plus the URI list of its newest page -- is compared against the
+page-0 fetch the read needs anyway, and a match reuses the cached URIs at
+the cost of that one request (see the
+[data model](../browser/DATA_MODEL.md) for why the fingerprint is sound).
+With no snapshot, a full read pins the page-0 fingerprint,
 runs the same bounded pool and offset assembly as playlist reads, and
-verifies with the summed raw count plus a final probe whose `total` must
-match the pin -- the strongest torn-read detection the endpoint offers.
+verifies with the summed raw count plus a final probe that must reproduce
+the pinned fingerprint -- so a mid-read membership change fails the read
+even when it holds the total still, the strongest torn-read detection the
+endpoint offers, and a stored record is verified current at read end.
 Reading the library requires `user-library-read` (see the
 [authorization model](../browser/AUTHORIZATION_MODEL.md) for how older
 tokens are gated to a reconnect).
