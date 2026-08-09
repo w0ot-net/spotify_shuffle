@@ -110,9 +110,10 @@ counts are computed locally by a multiset comparison (see the
 
 Integration failures fail fast. A non-OK response -- including `401`,
 `429`, and `5xx` -- surfaces as a listing, read, or write failure with a
-retry message naming the HTTP status Spotify returned (for example
-"(Spotify returned 429)"), so a live failure is diagnosable from the page
-alone; there is no retry, backoff, or `Retry-After` scheduling, and
+retry message naming the HTTP status and endpoint Spotify refused (for
+example "(Spotify returned 429 at /v1/me/tracks)"), so a live failure is
+diagnosable from the page alone; there is no retry, backoff, or
+`Retry-After` scheduling, and
 no failure is interpreted as revocation (see the
 [authorization model](../browser/AUTHORIZATION_MODEL.md)). This posture is a
 deliberate current stance, recorded when OAuth hardening deferred retry

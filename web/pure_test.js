@@ -432,10 +432,14 @@ test("createdPlaylistMessage names the playlist with count and duration", () => 
   );
 });
 
-test("SpotifyRequestError carries the response status", () => {
-  const error = new TrueShuffle.SpotifyRequestError(429);
-  assert.equal(error.status, 429);
-  assert.equal(error.message, "Spotify request failed with status 429");
+test("SpotifyRequestError carries the response status and path", () => {
+  const error = new TrueShuffle.SpotifyRequestError(403, "/v1/me");
+  assert.equal(error.status, 403);
+  assert.equal(error.path, "/v1/me");
+  assert.equal(error.message, "Spotify request failed with status 403 at /v1/me");
+  const pathless = new TrueShuffle.SpotifyRequestError(429);
+  assert.equal(pathless.path, "");
+  assert.equal(pathless.message, "Spotify request failed with status 429");
   assert.equal(
     error instanceof TrueShuffle.PlaylistChangedError, false,
     "status failures must not render as changed-while-loading"

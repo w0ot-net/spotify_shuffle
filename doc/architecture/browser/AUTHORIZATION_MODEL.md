@@ -17,9 +17,10 @@ in-place playlist shuffle (planned).
 
 A stored token's `scope` value gates capabilities added after it was
 granted: a token without `user-library-read` keeps working for playlists
-while the Liked Songs section offers a reconnect, which is the ordinary
-authorization flow with the current scope list. There is no separate
-reconsent path.
+while the Liked Songs section offers a reconnect, and a token without
+`playlist-modify-private` is offered the same reconnect before any write
+is attempted. The reconnect is the ordinary authorization flow with the
+current scope list; there is no separate reconsent path.
 
 ## Flow
 

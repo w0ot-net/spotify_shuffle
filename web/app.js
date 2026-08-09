@@ -24,6 +24,7 @@
     "user-library-read"
   ];
   const likedScope = "user-library-read";
+  const playlistWriteScope = "playlist-modify-private";
 
   const statusElement = document.getElementById("status");
   const connectButton = document.getElementById("connect");
@@ -273,17 +274,19 @@
     }
     const response = await window.fetch(url, options);
     if (!response.ok) {
-      throw new TrueShuffle.SpotifyRequestError(response.status);
+      throw new TrueShuffle.SpotifyRequestError(response.status, new URL(url).pathname);
     }
     return response.json();
   }
 
   // Fail-fast stays, but blind messages cost live diagnosis time twice;
-  // name the status when Spotify supplied one.
+  // name the status and the refused endpoint when Spotify supplied them.
   function failureDetail(error) {
-    return error instanceof TrueShuffle.SpotifyRequestError
-      ? " (Spotify returned " + error.status + ")"
-      : "";
+    if (!(error instanceof TrueShuffle.SpotifyRequestError)) {
+      return "";
+    }
+    return " (Spotify returned " + error.status +
+      (error.path !== "" ? " at " + error.path : "") + ")";
   }
 
   async function fetchPlaylists(token) {
@@ -611,6 +614,13 @@
     const uris = likedTracks.uris;
     if (uris.length > TrueShuffle.maxPlaylistTracks) {
       renderLikedStatus("Liked Songs holds more than 10,000 tracks, the most a playlist can contain.");
+      return;
+    }
+    // Creating the private playlist needs the write scope; a token without
+    // it would only earn a 403, so offer the reconnect up front.
+    if (!TrueShuffle.hasScope(token.scope, playlistWriteScope)) {
+      renderLikedStatus("Reconnect Spotify to allow creating playlists.");
+      likedConnectButton.hidden = false;
       return;
     }
     setActionButtonsDisabled(true);
