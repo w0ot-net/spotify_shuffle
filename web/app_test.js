@@ -1262,9 +1262,15 @@ test("disconnecting clears the Liked Songs section", async () => {
 });
 
 // A working write-path world for one liked library: profile, playlist
-// creation, batch appends (recorded), and the final total verification.
-function shuffleWorld(likedURIs) {
+// creation, batch writes (methods and URIs recorded), and the final total
+// verification. The fake models replace-versus-append contents, so an
+// overwrite that fails to PUT its first batch fails the verification. Pass
+// an existing target id to start with the derived target already listed
+// and holding stale contents.
+function shuffleWorld(likedURIs, existingTargetId) {
+  const targetId = existingTargetId || "new-pl";
   const world = {appendedBatches: [], createBodies: []};
+  world.targetContents = existingTargetId ? ["spotify:track:stale"] : null;
   world.options = {
     localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
     likedHandler: steadyLikedHandler(50, likedURIs),
@@ -1274,21 +1280,29 @@ function shuffleWorld(likedURIs) {
       assert.equal(requestOptions.method, "POST");
       const body = JSON.parse(requestOptions.body);
       world.createBodies.push(body);
-      return jsonResponse(200, {id: "new-pl", name: body.name});
+      return jsonResponse(200, {id: targetId, name: body.name});
     },
     trackHandler: (url, requestOptions) => {
-      if (url === "https://api.spotify.com/v1/playlists/new-pl/tracks") {
-        assert.equal(requestOptions.method, "POST");
-        world.appendedBatches.push(JSON.parse(requestOptions.body).uris);
+      if (url === "https://api.spotify.com/v1/playlists/" + targetId + "/tracks") {
+        const uris = JSON.parse(requestOptions.body).uris;
+        world.appendedBatches.push({method: requestOptions.method, uris: uris});
+        world.targetContents = requestOptions.method === "PUT"
+          ? uris.slice()
+          : (world.targetContents || []).concat(uris);
         return jsonResponse(201, {snapshot_id: "write-snap"});
       }
-      if (url === "https://api.spotify.com/v1/playlists/new-pl?fields=tracks.total") {
-        const written = world.appendedBatches.reduce((sum, batch) => sum + batch.length, 0);
-        return jsonResponse(200, {tracks: {total: written}});
+      if (url === "https://api.spotify.com/v1/playlists/" + targetId + "?fields=tracks.total") {
+        return jsonResponse(200, {tracks: {total: (world.targetContents || []).length}});
       }
       throw new Error("unexpected playlist request: " + url);
     }
   };
+  if (existingTargetId) {
+    world.options.playlistHandler = () => playlistPage([
+      {id: "decoy", name: "Liked Songs TrueShuffle Backup", tracks: {total: 1}, snapshot_id: "snap-d"},
+      {id: existingTargetId, name: "Liked Songs TrueShuffle", tracks: {total: 1}, snapshot_id: "snap-t"}
+    ]);
+  }
   return world;
 }
 
@@ -1310,17 +1324,72 @@ test("shuffling Liked Songs creates one new private playlist with every track", 
   await settle();
 
   assert.equal(world.createBodies.length, 1, "exactly one playlist is created");
-  assert.match(world.createBodies[0].name, /^Liked Shuffle \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+  assert.equal(world.createBodies[0].name, "Liked Songs TrueShuffle");
   assert.equal(world.createBodies[0].public, false);
   assert.equal(world.appendedBatches.length, 1);
-  assert.deepEqual(world.appendedBatches[0].slice().sort(), uris.slice().sort(),
+  assert.equal(world.appendedBatches[0].method, "POST",
+    "a freshly created target only appends");
+  assert.deepEqual(world.appendedBatches[0].uris.slice().sort(), uris.slice().sort(),
     "the new playlist holds exactly the liked tracks, reordered");
   assert.match(
     harness.likedStatusElement.textContent,
-    /^Created "Liked Shuffle .+" with 3 tracks in \d+\.\ds\.$/
+    /^Created "Liked Songs TrueShuffle" with 3 tracks in \d+\.\ds\.$/
   );
   assert.equal(harness.trackProgressElement.hidden, true);
   assert.equal(harness.likedShuffleButton.disabled, false);
+});
+
+test("an existing derived target is overwritten in place", async () => {
+  const uris = [];
+  for (let index = 0; index < 150; index += 1) {
+    uris.push("spotify:track:" + index);
+  }
+  const world = shuffleWorld(uris, "target-1");
+  const harness = createHarness(world.options);
+
+  await loadLiked(harness);
+  harness.likedShuffleButton.click();
+  await settle();
+
+  assert.equal(world.createBodies.length, 0, "no playlist is created when the target exists");
+  assert.equal(
+    harness.requests.every((request) => request.url !== "https://api.spotify.com/v1/me"),
+    true,
+    "an overwrite needs no profile read"
+  );
+  assert.deepEqual(plain(world.appendedBatches.map((batch) => batch.method)), ["PUT", "POST"],
+    "the first batch replaces the contents, the rest append");
+  assert.deepEqual(
+    plain(world.targetContents).slice().sort(),
+    uris.slice().sort(),
+    "the stale contents are fully replaced"
+  );
+  assert.match(
+    harness.likedStatusElement.textContent,
+    /^Updated "Liked Songs TrueShuffle" with 150 tracks in \d+\.\ds\.$/
+  );
+});
+
+test("a second shuffle in the same page load overwrites the created target", async () => {
+  const uris = ["spotify:track:a", "spotify:track:b", "spotify:track:c"];
+  const world = shuffleWorld(uris);
+  const harness = createHarness(world.options);
+
+  await loadLiked(harness);
+  harness.likedShuffleButton.click();
+  await settle();
+  assert.match(harness.likedStatusElement.textContent, /^Created /);
+
+  harness.likedShuffleButton.click();
+  await settle();
+
+  assert.equal(world.createBodies.length, 1, "the second shuffle creates nothing");
+  assert.deepEqual(plain(world.appendedBatches.map((batch) => batch.method)), ["POST", "PUT"],
+    "the second shuffle replaces the target created moments earlier");
+  assert.match(
+    harness.likedStatusElement.textContent,
+    /^Updated "Liked Songs TrueShuffle" with 3 tracks in \d+\.\ds\.$/
+  );
 });
 
 test("shuffle appends run sequentially in batches of at most 100", async () => {
@@ -1335,12 +1404,12 @@ test("shuffle appends run sequentially in batches of at most 100", async () => {
   harness.likedShuffleButton.click();
   await settle();
 
-  assert.deepEqual(world.appendedBatches.map((batch) => batch.length), [100, 100, 50]);
-  const written = world.appendedBatches.flat();
+  assert.deepEqual(plain(world.appendedBatches.map((batch) => batch.uris.length)), [100, 100, 50]);
+  const written = world.appendedBatches.map((batch) => batch.uris).flat();
   assert.deepEqual(written.slice().sort(), uris.slice().sort());
   assert.match(
     harness.likedStatusElement.textContent,
-    /^Created "Liked Shuffle .+" with 250 tracks in \d+\.\ds\.$/
+    /^Created "Liked Songs TrueShuffle" with 250 tracks in \d+\.\ds\.$/
   );
 });
 
@@ -1366,7 +1435,7 @@ test("a failed append names the possibly partial playlist", async () => {
 
   assert.match(
     harness.likedStatusElement.textContent,
-    /^"Liked Shuffle .+" may be incomplete \(Spotify returned 500 at \/v1\/playlists\/new-pl\/tracks\)\. Delete it in Spotify or shuffle again\.$/
+    /^"Liked Songs TrueShuffle" may be incomplete \(Spotify returned 500 at \/v1\/playlists\/new-pl\/tracks\)\. Shuffle again to rewrite it\.$/
   );
   assert.equal(harness.trackProgressElement.hidden, true);
 });

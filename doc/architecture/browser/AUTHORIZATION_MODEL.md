@@ -11,9 +11,9 @@ supplies only the public client ID through `/api/config`; it never sees an
 authorization code, verifier, or token. The app requests the scopes
 `playlist-read-private`, `playlist-modify-public`,
 `playlist-modify-private`, and `user-library-read`.
-`playlist-modify-private` is exercised by the shuffled-playlist creation;
-`playlist-modify-public` is granted but unexercised, held for the
-in-place playlist shuffle (planned).
+`playlist-modify-private` is exercised by the derived-playlist writes;
+`playlist-modify-public` is granted but unexercised, held so a derived
+playlist a user later makes public stays overwritable without re-consent.
 
 A stored token's `scope` value gates capabilities added after it was
 granted: a token without `user-library-read` keeps working for playlists

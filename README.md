@@ -32,8 +32,11 @@ and a changed playlist is re-read and reports how many tracks were added and
 removed since the last read. A Liked Songs section reads the account's
 complete saved-tracks library the same way (Liked Songs is not a playlist
 and cannot be reordered in place; connections made before this feature show
-a one-time reconnect to grant the library scope) and can then create a new
-private playlist containing every liked track in a random order. Existing
+a one-time reconnect to grant the library scope) and can then shuffle every
+liked track into one stable derived playlist, "Liked Songs TrueShuffle" --
+created private on first use and rewritten in place on every rerun, so
+repeat shuffles never accumulate playlists. The only playlists the app
+ever writes are the ones it derives with the " TrueShuffle" suffix; source
 playlists are never modified.
 
 The browser stores Spotify access and refresh tokens in `localStorage` under a

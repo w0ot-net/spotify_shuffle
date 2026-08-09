@@ -417,18 +417,38 @@ test("uriBatches splits at 100 preserving order", () => {
   assert.deepEqual(plain(batches[2][0]), "u200");
 });
 
-test("createdPlaylistMessage names the playlist with count and duration", () => {
+test("derivedPlaylistName appends the ownership suffix", () => {
+  assert.equal(TrueShuffle.derivedPlaylistName("Liked Songs"), "Liked Songs TrueShuffle");
+  assert.equal(TrueShuffle.derivedPlaylistName("Road trip!"), "Road trip! TrueShuffle");
+  assert.equal(TrueShuffle.derivedPlaylistName(""), " TrueShuffle");
+});
+
+test("findPlaylistByName matches exactly and returns the first hit", () => {
+  const playlists = [
+    {id: "a", name: "Morning TrueShuffle"},
+    {id: "b", name: "morning trueshuffle"},
+    {id: "c", name: "Morning TrueShuffle"}
+  ];
+  assert.equal(TrueShuffle.findPlaylistByName(playlists, "Morning TrueShuffle").id, "a",
+    "the first exact match wins");
+  assert.equal(TrueShuffle.findPlaylistByName(playlists, "MORNING TRUESHUFFLE"), null,
+    "matching is case-sensitive");
+  assert.equal(TrueShuffle.findPlaylistByName(playlists, "Evening TrueShuffle"), null);
+  assert.equal(TrueShuffle.findPlaylistByName([], "Morning TrueShuffle"), null);
+});
+
+test("shuffleResultMessage distinguishes created from updated", () => {
   assert.equal(
-    TrueShuffle.createdPlaylistMessage("Liked Shuffle 2026-08-09 21:40", 4212, 8160),
-    "Created \"Liked Shuffle 2026-08-09 21:40\" with 4212 tracks in 8.2s."
+    TrueShuffle.shuffleResultMessage(true, "Liked Songs TrueShuffle", 4212, 8160),
+    "Created \"Liked Songs TrueShuffle\" with 4212 tracks in 8.2s."
   );
   assert.equal(
-    TrueShuffle.createdPlaylistMessage("X", 1, 0),
-    "Created \"X\" with 1 track in 0.0s."
+    TrueShuffle.shuffleResultMessage(false, "Liked Songs TrueShuffle", 1, 0),
+    "Updated \"Liked Songs TrueShuffle\" with 1 track in 0.0s."
   );
   assert.equal(
-    TrueShuffle.createdPlaylistMessage("X", 2, -9),
-    "Created \"X\" with 2 tracks in 0.0s."
+    TrueShuffle.shuffleResultMessage(false, "X", 2, -9),
+    "Updated \"X\" with 2 tracks in 0.0s."
   );
 });
 

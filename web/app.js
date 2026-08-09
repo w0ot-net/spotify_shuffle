@@ -40,6 +40,10 @@
   let publicConfig = null;
   let selectedPlaylist = null;
   let playlistButtons = [];
+  // The listing as fetched, retained so the write flow can find an existing
+  // derived target by name; a created target is appended so a second
+  // shuffle in the same page load overwrites instead of duplicating.
+  let listedPlaylists = [];
   // The liked-songs library read: {uris}. Input for the shuffled-playlist
   // increment.
   let likedTracks = null;
@@ -249,6 +253,7 @@
     likedTracks = null;
     likedToken = null;
     playlistButtons = [];
+    listedPlaylists = [];
     playlistsElement.textContent = "";
     playlistsElement.hidden = true;
     playlistStatusElement.textContent = "";
@@ -263,12 +268,12 @@
     likedShuffleButton.hidden = true;
   }
 
-  async function requestSpotify(token, url, body) {
+  async function requestSpotify(token, url, body, method) {
     const options = {
       headers: {Authorization: token.token_type + " " + token.access_token}
     };
     if (body !== undefined) {
-      options.method = "POST";
+      options.method = method || "POST";
       options.headers["Content-Type"] = "application/json";
       options.body = JSON.stringify(body);
     }
@@ -603,67 +608,80 @@
     return words[0] % n;
   }
 
-  function shuffledPlaylistName() {
-    return "Liked Shuffle " + new Date(Date.now()).toISOString().slice(0, 16).replace("T", " ");
-  }
-
-  // Writes only the playlist created here, sequentially so arrival order is
-  // the shuffled order; a failure can strand at worst a partial new
-  // playlist, which the message names instead of hiding.
+  // Writes land in the one derived target per source -- created under the
+  // derived name when absent, replaced in full when present. Every id this
+  // flow addresses is either returned by the create call it just made or
+  // found in the listing under the exact derived name, so a playlist
+  // without the suffix is unreachable by construction.
   async function createShuffledPlaylist(token) {
     const uris = likedTracks.uris;
     if (uris.length > TrueShuffle.maxPlaylistTracks) {
       renderLikedStatus("Liked Songs holds more than 10,000 tracks, the most a playlist can contain.");
       return;
     }
-    // Creating the private playlist needs the write scope; a token without
-    // it would only earn a 403, so offer the reconnect up front.
+    // Writing needs the modify scope; a token without it would only earn a
+    // 403, so offer the reconnect up front.
     if (!TrueShuffle.hasScope(token.scope, playlistWriteScope)) {
       renderLikedStatus("Reconnect Spotify to allow creating playlists.");
       likedConnectButton.hidden = false;
       return;
     }
     setActionButtonsDisabled(true);
-    renderLikedStatus("Creating a shuffled playlist...");
+    const targetName = TrueShuffle.derivedPlaylistName("Liked Songs");
+    renderLikedStatus("Shuffling into \"" + targetName + "\"...");
     const writeStart = Date.now();
-    let created = null;
+    let target = TrueShuffle.findPlaylistByName(listedPlaylists, targetName);
+    const overwriting = target !== null;
     try {
       const shuffled = TrueShuffle.shuffledURIs(uris, randomBelow);
-      const userId = TrueShuffle.readUserId(
-        await requestSpotify(token, TrueShuffle.meEndpoint)
-      );
-      created = TrueShuffle.readCreatedPlaylist(await requestSpotify(
-        token,
-        TrueShuffle.createPlaylistURL(userId),
-        {name: shuffledPlaylistName(), public: false, description: "Created by TrueShuffle"}
-      ));
+      if (!overwriting) {
+        const userId = TrueShuffle.readUserId(
+          await requestSpotify(token, TrueShuffle.meEndpoint)
+        );
+        const created = TrueShuffle.readCreatedPlaylist(await requestSpotify(
+          token,
+          TrueShuffle.createPlaylistURL(userId),
+          {name: targetName, public: false, description: "Created by TrueShuffle"}
+        ));
+        target = {id: created.id, name: created.name, total: null, snapshotId: null};
+        listedPlaylists.push(target);
+      }
       let written = 0;
       renderTrackProgress(written, shuffled.length);
-      for (const batch of TrueShuffle.uriBatches(shuffled)) {
-        await requestSpotify(token, TrueShuffle.addTracksURL(created.id), {uris: batch});
-        written += batch.length;
+      const batches = TrueShuffle.uriBatches(shuffled);
+      for (let index = 0; index < batches.length; index += 1) {
+        // On an existing target the first batch replaces the entire
+        // contents, so a rerun never appends onto wreckage.
+        const replace = overwriting && index === 0;
+        await requestSpotify(
+          token,
+          TrueShuffle.addTracksURL(target.id),
+          {uris: batches[index]},
+          replace ? "PUT" : "POST"
+        );
+        written += batches[index].length;
         renderTrackProgress(written, shuffled.length);
       }
       const total = TrueShuffle.readPlaylistTotal(
-        await requestSpotify(token, TrueShuffle.playlistTotalURL(created.id))
+        await requestSpotify(token, TrueShuffle.playlistTotalURL(target.id))
       );
       if (total !== shuffled.length) {
-        throw new Error("the new playlist does not contain every track");
+        throw new Error("the target playlist does not contain every track");
       }
       if (likedToken === null) {
         return;
       }
-      renderLikedStatus(TrueShuffle.createdPlaylistMessage(
-        created.name, shuffled.length, Date.now() - writeStart
+      renderLikedStatus(TrueShuffle.shuffleResultMessage(
+        !overwriting, target.name, shuffled.length, Date.now() - writeStart
       ));
     } catch (error) {
       if (likedToken === null) {
         return;
       }
-      renderLikedStatus(created === null
+      renderLikedStatus(target === null
         ? "The shuffled playlist could not be created" + failureDetail(error) + ". Try again."
-        : "\"" + created.name + "\" may be incomplete" + failureDetail(error) +
-          ". Delete it in Spotify or shuffle again.");
+        : "\"" + target.name + "\" may be incomplete" + failureDetail(error) +
+          ". Shuffle again to rewrite it.");
     } finally {
       trackProgressElement.hidden = true;
       setActionButtonsDisabled(false);
@@ -712,6 +730,7 @@
       renderPlaylistStatus("Playlists could not be loaded. Reload to try again.");
       return;
     }
+    listedPlaylists = playlists;
 
     if (playlists.length === 0) {
       renderPlaylistStatus("This Spotify account has no playlists.");

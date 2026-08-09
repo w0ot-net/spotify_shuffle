@@ -83,17 +83,25 @@ tokens are gated to a reconnect).
 
 ## Writing the shuffled playlist
 
-The only write flow creates a new private playlist and fills it: read the
-user id, `POST` the playlist, then append the shuffled URIs with
-sequential `POST` batches of at most 100 -- sequential because each append
-lands at the playlist's end, so arrival order is the shuffled order. After
-the last batch, a `fields=tracks.total` read of the new playlist must
-equal the written count or the flow reports the playlist as possibly
-incomplete, naming it for manual cleanup; it never claims success on a
-shortfall. No pre-existing playlist is ever written, so a failure strands
-at worst a partial playlist this app just created. A library above the
-10,000-item playlist cap fails before anything is created. This flow is
-the first exercise of `playlist-modify-private`.
+Shuffled output lands in one derived playlist per source, named
+`<source name> TrueShuffle`. The suffix is the app's ownership claim and
+an invariant, not a convention: every playlist id the write flow touches
+is either returned by the create call it just made or found in the
+page-load listing under a name exactly equal to the derived name, so a
+playlist without the suffix is unreachable by construction.
+
+When no listed playlist bears the derived name, the flow reads the user
+id, `POST`s a private playlist under that name, and appends the shuffled
+URIs in sequential `POST` batches of at most 100 -- sequential because
+each append lands at the end, so arrival order is the shuffled order.
+When the target exists, the first batch goes by `PUT`, replacing the
+entire contents, and the remaining batches append; a rerun after any
+mid-write failure therefore starts from a clean replacement, never
+appending onto wreckage. Either way a final `fields=tracks.total` read of
+the target must equal the written count or the flow names the target as
+possibly incomplete and offers a rerun; it never claims success on a
+shortfall. A source above the 10,000-item playlist cap fails before
+anything is written.
 
 ## Snapshot semantics
 
@@ -124,6 +132,7 @@ is to be designed from recorded live observations, not ahead of them.
 
 `playlist-read-private` is exercised by listing and track reading,
 `user-library-read` by the Liked Songs read, and
-`playlist-modify-private` by the shuffled-playlist creation.
-`playlist-modify-public` is granted but unexercised -- held so the
-in-place playlist shuffle needs no re-consent (planned).
+`playlist-modify-private` by the derived-playlist writes.
+`playlist-modify-public` is granted but unexercised -- held because a
+user may make a derived playlist public in Spotify, and overwriting it
+then requires the public scope without a re-consent.

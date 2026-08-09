@@ -210,8 +210,25 @@ var TrueShuffle = (function () {
     return batches;
   }
 
-  function createdPlaylistMessage(name, count, elapsedMilliseconds) {
-    return "Created \"" + name + "\" with " + count +
+  // The suffix is the app's ownership claim: the only playlists the write
+  // flow ever addresses carry it.
+  const derivedPlaylistSuffix = " TrueShuffle";
+
+  function derivedPlaylistName(sourceName) {
+    return sourceName + derivedPlaylistSuffix;
+  }
+
+  function findPlaylistByName(playlists, name) {
+    for (const playlist of playlists) {
+      if (playlist.name === name) {
+        return playlist;
+      }
+    }
+    return null;
+  }
+
+  function shuffleResultMessage(created, name, count, elapsedMilliseconds) {
+    return (created ? "Created \"" : "Updated \"") + name + "\" with " + count +
       (count === 1 ? " track" : " tracks") +
       " in " + (Math.max(0, elapsedMilliseconds) / 1000).toFixed(1) + "s.";
   }
@@ -306,7 +323,9 @@ var TrueShuffle = (function () {
     buildTokenRecord: buildTokenRecord,
     countTrackChanges: countTrackChanges,
     createPlaylistURL: createPlaylistURL,
-    createdPlaylistMessage: createdPlaylistMessage,
+    derivedPlaylistName: derivedPlaylistName,
+    derivedPlaylistSuffix: derivedPlaylistSuffix,
+    findPlaylistByName: findPlaylistByName,
     hasScope: hasScope,
     likedPageURL: likedPageURL,
     loadedTracksMessage: loadedTracksMessage,
@@ -324,6 +343,7 @@ var TrueShuffle = (function () {
     readUserId: readUserId,
     remainingTrackOffsets: remainingTrackOffsets,
     shuffledURIs: shuffledURIs,
+    shuffleResultMessage: shuffleResultMessage,
     SpotifyRequestError: SpotifyRequestError,
     trackPageURL: trackPageURL,
     uriBatches: uriBatches,
