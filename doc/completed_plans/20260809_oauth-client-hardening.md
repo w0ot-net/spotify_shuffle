@@ -186,3 +186,84 @@ No live Spotify rate-limit or server-failure injection is required; those cases 
 - Retry and backoff behavior for Spotify `429` and transient server failures.
 - Playlist API integration and browser-side playlist caching.
 - Any broader frontend modularization or end-to-end browser test tooling, if future complexity justifies it.
+
+## Execution Notes
+
+Completed on 2026-08-09.
+
+Implemented behavior:
+
+- Added a narrow `AuthorizationRevokedError` classification. Only a parsed
+  Spotify token error with `error: "invalid_grant"` now clears a saved token
+  during refresh.
+- Preserved saved authorization for rate limits, server failures, network
+  failures, non-JSON responses, other OAuth errors, and malformed successful
+  responses while retaining the existing reload/retry UI.
+- Added non-throwing pending-authorization cleanup, controlled all-or-nothing
+  pending-state writes, and safe pending-state reads.
+- Moved callback URL cleanup ahead of storage access so callback credentials do
+  not remain in browser history when `sessionStorage` is unavailable.
+- Added `web/app_test.js`, a dependency-free Node behavioral suite covering ten
+  refresh, callback, and storage-failure cases.
+- Documented the Node.js 18-or-later test command in the README.
+- Deployed implementation commit
+  `78146483563ee6d345bee6c07464050a99ee2cc2` as the active
+  commit-addressed release with SHA-256
+  `daf468c27f4443c1f3af5456f0c690e9fbf8372a772c5bfcf3632097cd3f26e8`.
+
+Changed ownership boundaries:
+
+- `web/app.js` continues to own browser OAuth and token lifecycle behavior;
+  its permanent-refresh-failure boundary is now explicit.
+- `web/app_test.js` owns dependency-free behavioral verification through the
+  application's existing DOM, storage, history, and fetch surfaces.
+- The deployment uses `/opt/trueshuffle/repo`, commit-addressed releases, and
+  the atomic `/opt/trueshuffle/current` pointer established by the completed
+  self-contained-layout plan.
+
+Deviations and corrections:
+
+- The production host's Node.js 22.22.2 `--test` entry point failed before
+  loading the test file because its installation lacks the internal
+  `internal/deps/brace-expansion` module. `node:test` itself loads normally,
+  and direct execution with `node web/app_test.js` ran the identical committed
+  suite with all ten cases passing. The documented `node --test` command passed
+  locally on Node.js 18.19.1. No dependency, package-manager, or host Node
+  repair was added to this application change.
+- A live Spotify sign-in was not repeated. The committed deterministic harness
+  exercised the changed callback, refresh, saved-token, and storage paths
+  without using an external account or modifying playlist data; production
+  route and configuration checks verified the deployed application boundary.
+
+Validation:
+
+- Local `node --check web/app.js`: passed.
+- Local `node --check web/app_test.js`: passed.
+- Local `node --test web/app_test.js`: 10 passed, 0 failed.
+- Local `go test ./...` and `go vet ./...`: passed.
+- Local `git diff --check`: passed before commit.
+- Production `node --check` for both scripts: passed.
+- Production `node web/app_test.js`: 10 passed, 0 failed.
+- Production `go test ./...` and `go vet ./...`: passed.
+- Release `file`, module path, embedded Git revision, clean VCS state, and
+  installed checksum: verified before activation.
+- Atomic `current` switch retained the prior release through validation; no
+  rollback was needed, and no staging or rollback symlink remains.
+- `trueshuffle.service`: enabled, active, `DynamicUser=yes`, zero automatic
+  restarts, and listening only on `127.0.0.1:5107`.
+- Loopback `/`, `/api/config`, and `/healthz`, plus public HTTPS `/` and
+  `/healthz`: passed after deployment.
+- Service journal: zero warning-or-higher entries after activation.
+
+Repository commits:
+
+- `7814648` (`Harden browser OAuth token lifecycle`) contains the application,
+  behavioral test suite, and README changes.
+
+Unresolved blockers and excluded follow-up:
+
+- None. Repairing the host's optional Node.js `--test` entry-point packaging is
+  an independent host-tooling concern; the committed suite and application do
+  not depend on that repair at runtime.
+- Automatic retry/backoff, playlist behavior, frontend modularization, and
+  broader browser automation remain excluded as planned.
