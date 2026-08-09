@@ -123,18 +123,62 @@ function playlistPage(items, next) {
   return jsonResponse(200, {items: items, next: next || null});
 }
 
+function snapshotPage(snapshotId) {
+  return jsonResponse(200, {snapshot_id: snapshotId});
+}
+
+function trackPageResponse(limit, total, uris) {
+  return jsonResponse(200, {
+    limit: limit,
+    total: total,
+    items: uris.map((uri) => ({track: {uri: uri}}))
+  });
+}
+
+function snapshotURL(playlistId) {
+  return "https://api.spotify.com/v1/playlists/" + playlistId + "?fields=snapshot_id";
+}
+
+function trackURL(playlistId, offset) {
+  return "https://api.spotify.com/v1/playlists/" + playlistId +
+    "/tracks?fields=limit,total,items(track(uri))&limit=100&offset=" + offset;
+}
+
+// Serves the snapshot pin/verify and every offset page for one playlist
+// whose contents never change during the read.
+function steadyTrackHandler(playlistId, snapshotId, limit, uris) {
+  return (url) => {
+    if (url === snapshotURL(playlistId)) {
+      return snapshotPage(snapshotId);
+    }
+    const offset = Number(new URL(url).searchParams.get("offset"));
+    assert.equal(url, trackURL(playlistId, offset));
+    return trackPageResponse(limit, uris.length, uris.slice(offset, offset + limit));
+  };
+}
+
+function deferred() {
+  let resolve;
+  const promise = new Promise((nextResolve) => {
+    resolve = nextResolve;
+  });
+  return {promise: promise, resolve: resolve};
+}
+
 function createHarness(options) {
   options = options || {};
   const statusElement = new FakeElement(false);
   const connectButton = new FakeElement(true);
   const logoutButton = new FakeElement(true);
   const playlistStatusElement = new FakeElement(true);
+  const trackStatusElement = new FakeElement(true);
   const playlistsElement = new FakeElement(true);
   const elements = {
     status: statusElement,
     connect: connectButton,
     logout: logoutButton,
     "playlist-status": playlistStatusElement,
+    "track-status": trackStatusElement,
     playlists: playlistsElement
   };
   const localStorage = options.localStorage || new FakeStorage();
@@ -174,6 +218,9 @@ function createHarness(options) {
       if (url.startsWith(playlistsEndpoint + "?")) {
         return (options.playlistHandler || (() => playlistPage([])))(url, requestOptions);
       }
+      if (url.startsWith("https://api.spotify.com/v1/playlists/") && options.trackHandler) {
+        return options.trackHandler(url, requestOptions);
+      }
       throw new Error("unexpected fetch: " + url);
     }
   };
@@ -208,7 +255,8 @@ function createHarness(options) {
     playlistsElement: playlistsElement,
     requests: requests,
     sessionStorage: sessionStorage,
-    statusElement: statusElement
+    statusElement: statusElement,
+    trackStatusElement: trackStatusElement
   };
 }
 
@@ -436,45 +484,244 @@ test("a playlist page cursor off the Spotify API origin is rejected", async () =
   assert.equal(harness.playlistsElement.hidden, true);
 });
 
+// Selection now loads tracks, so the former assertion that selecting issues
+// no request moved with the behavior: each selection reads the playlist.
 test("selecting a playlist marks it and moves the mark on reselection", async () => {
   const harness = createHarness({
     localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
     playlistHandler: () => playlistPage([
       {id: "first", name: "Morning", tracks: {total: 1}},
-      {id: "second", name: "Evening", tracks: {total: 2}}
-    ])
+      {id: "second", name: "Evening", tracks: {total: 1}}
+    ]),
+    trackHandler: (url) => {
+      const playlistId = url.includes("/playlists/first") ? "first" : "second";
+      return steadyTrackHandler(playlistId, "snap-" + playlistId, 100, ["spotify:track:" + playlistId])(url);
+    }
   });
 
   await settle();
   const buttons = playlistButtons(harness);
-  const requestCount = harness.requests.length;
 
   buttons[0].click();
+  await settle();
   assert.equal(buttons[0].getAttribute("aria-pressed"), "true");
   assert.equal(harness.playlistStatusElement.textContent, "Selected Morning.");
+  assert.equal(harness.trackStatusElement.textContent, "Loaded 1 track.");
 
   buttons[1].click();
+  await settle();
   assert.equal(buttons[0].getAttribute("aria-pressed"), "false");
   assert.equal(buttons[1].getAttribute("aria-pressed"), "true");
   assert.equal(harness.playlistStatusElement.textContent, "Selected Evening.");
-  assert.equal(harness.requests.length, requestCount);
 });
 
-test("disconnecting clears a rendered playlist list", async () => {
+test("disconnecting clears a rendered playlist list and track state", async () => {
   const harness = createHarness({
     localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
-    playlistHandler: () => playlistPage([{id: "first", name: "Morning", tracks: {total: 1}}])
+    playlistHandler: () => playlistPage([{id: "first", name: "Morning", tracks: {total: 1}}]),
+    trackHandler: steadyTrackHandler("first", "snap-1", 100, ["spotify:track:a"])
   });
 
   await settle();
   assert.equal(playlistButtons(harness).length, 1);
+  playlistButtons(harness)[0].click();
+  await settle();
+  assert.equal(harness.trackStatusElement.textContent, "Loaded 1 track.");
 
   harness.logoutButton.click();
 
   assert.deepEqual(harness.playlistsElement.children, []);
   assert.equal(harness.playlistsElement.hidden, true);
   assert.equal(harness.playlistStatusElement.hidden, true);
+  assert.equal(harness.trackStatusElement.hidden, true);
+  assert.equal(harness.trackStatusElement.textContent, "");
   assert.equal(harness.statusElement.textContent, "Spotify was disconnected from this browser.");
+});
+
+test("selecting a playlist reads every page and renders the count", async () => {
+  const uris = [];
+  for (let index = 0; index < 250; index += 1) {
+    uris.push("spotify:track:" + index);
+  }
+  const harness = createHarness({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
+    playlistHandler: () => playlistPage([{id: "big", name: "Big", tracks: {total: 250}}]),
+    trackHandler: steadyTrackHandler("big", "snap-1", 100, uris)
+  });
+
+  await settle();
+  playlistButtons(harness)[0].click();
+  await settle();
+
+  assert.equal(harness.trackStatusElement.textContent, "Loaded 250 tracks.");
+  assert.equal(harness.trackStatusElement.hidden, false);
+  const trackRequests = harness.requests.filter(
+    (request) => request.url.startsWith("https://api.spotify.com/v1/playlists/")
+  );
+  assert.deepEqual(trackRequests.map((request) => request.url), [
+    snapshotURL("big"),
+    trackURL("big", 0),
+    trackURL("big", 100),
+    trackURL("big", 200),
+    snapshotURL("big")
+  ]);
+  assert.equal(trackRequests[0].options.headers.Authorization, "Bearer current-access-token");
+  assert.equal(playlistButtons(harness)[0].disabled, false);
+});
+
+test("an empty playlist renders a zero count", async () => {
+  const harness = createHarness({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
+    playlistHandler: () => playlistPage([{id: "empty", name: "Empty", tracks: {total: 0}}]),
+    trackHandler: steadyTrackHandler("empty", "snap-1", 100, [])
+  });
+
+  await settle();
+  playlistButtons(harness)[0].click();
+  await settle();
+
+  assert.equal(harness.trackStatusElement.textContent, "Loaded 0 tracks.");
+});
+
+test("track pages dispatch through a bounded pool and assemble out of order", async () => {
+  const uris = [];
+  for (let index = 0; index < 8; index += 1) {
+    uris.push("spotify:track:" + index);
+  }
+  const deferredByOffset = new Map();
+  const harness = createHarness({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
+    playlistHandler: () => playlistPage([{id: "big", name: "Big", tracks: {total: 8}}]),
+    trackHandler: (url) => {
+      if (url === snapshotURL("big")) {
+        return snapshotPage("snap-1");
+      }
+      if (url === trackURL("big", 0)) {
+        // The echoed limit of 1 is what the remaining offsets step by, so
+        // documentation assumptions about the page size cannot matter.
+        return trackPageResponse(1, 8, [uris[0]]);
+      }
+      const offset = Number(new URL(url).searchParams.get("offset"));
+      const entry = deferred();
+      deferredByOffset.set(offset, entry);
+      return entry.promise;
+    }
+  });
+
+  await settle();
+  playlistButtons(harness)[0].click();
+  await settle();
+
+  // Page 0 revealed 7 remaining pages; the pool holds 6 in flight.
+  assert.deepEqual([...deferredByOffset.keys()], [1, 2, 3, 4, 5, 6]);
+  assert.equal(harness.trackStatusElement.textContent, "Loading tracks...");
+  assert.equal(playlistButtons(harness)[0].disabled, true);
+
+  deferredByOffset.get(3).resolve(trackPageResponse(1, 8, [uris[3]]));
+  await settle();
+  assert.ok(deferredByOffset.has(7), "a freed slot dispatches the next page");
+
+  for (const offset of [7, 1, 6, 2, 5, 4]) {
+    deferredByOffset.get(offset).resolve(trackPageResponse(1, 8, [uris[offset]]));
+  }
+  await settle();
+
+  assert.equal(harness.trackStatusElement.textContent, "Loaded 8 tracks.");
+  assert.equal(playlistButtons(harness)[0].disabled, false);
+});
+
+test("a snapshot change during the read fails it and disturbs nothing else", async () => {
+  let snapshotCalls = 0;
+  const rawToken = JSON.stringify(currentToken());
+  const localStorage = new FakeStorage({[tokenStorageKey]: rawToken});
+  const harness = createHarness({
+    localStorage: localStorage,
+    playlistHandler: () => playlistPage([{id: "torn", name: "Morning", tracks: {total: 1}}]),
+    trackHandler: (url) => {
+      if (url === snapshotURL("torn")) {
+        snapshotCalls += 1;
+        return snapshotPage(snapshotCalls === 1 ? "snap-1" : "snap-2");
+      }
+      return trackPageResponse(100, 1, ["spotify:track:a"]);
+    }
+  });
+
+  await settle();
+  playlistButtons(harness)[0].click();
+  await settle();
+
+  assert.equal(
+    harness.trackStatusElement.textContent,
+    "This playlist changed while loading. Select it again."
+  );
+  assert.equal(localStorage.getItem(tokenStorageKey), rawToken);
+  assert.equal(harness.playlistsElement.hidden, false);
+  assert.equal(harness.statusElement.textContent, "Spotify is connected in this browser.");
+  assert.equal(harness.playlistStatusElement.textContent, "Selected Morning.");
+  assert.equal(playlistButtons(harness)[0].disabled, false);
+});
+
+test("a track count short of the total fails the read", async () => {
+  const harness = createHarness({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
+    playlistHandler: () => playlistPage([{id: "short", name: "Morning", tracks: {total: 3}}]),
+    trackHandler: (url) => url === snapshotURL("short")
+      ? snapshotPage("snap-1")
+      : trackPageResponse(100, 3, ["spotify:track:a", "spotify:track:b"])
+  });
+
+  await settle();
+  playlistButtons(harness)[0].click();
+  await settle();
+
+  assert.equal(
+    harness.trackStatusElement.textContent,
+    "This playlist changed while loading. Select it again."
+  );
+});
+
+test("a failed track read leaves the listing and token intact", async () => {
+  const rawToken = JSON.stringify(currentToken());
+  const localStorage = new FakeStorage({[tokenStorageKey]: rawToken});
+  const harness = createHarness({
+    localStorage: localStorage,
+    playlistHandler: () => playlistPage([{id: "down", name: "Morning", tracks: {total: 1}}]),
+    trackHandler: () => jsonResponse(500, {error: {status: 500}})
+  });
+
+  await settle();
+  playlistButtons(harness)[0].click();
+  await settle();
+
+  assert.equal(
+    harness.trackStatusElement.textContent,
+    "Tracks could not be loaded. Select the playlist again to retry."
+  );
+  assert.equal(localStorage.getItem(tokenStorageKey), rawToken);
+  assert.equal(harness.playlistsElement.hidden, false);
+  assert.equal(harness.statusElement.textContent, "Spotify is connected in this browser.");
+  assert.equal(playlistButtons(harness)[0].disabled, false);
+});
+
+test("disconnecting during a track read renders nothing afterward", async () => {
+  const entry = deferred();
+  const harness = createHarness({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
+    playlistHandler: () => playlistPage([{id: "slow", name: "Morning", tracks: {total: 1}}]),
+    trackHandler: (url) => url === snapshotURL("slow") ? snapshotPage("snap-1") : entry.promise
+  });
+
+  await settle();
+  playlistButtons(harness)[0].click();
+  await settle();
+  assert.equal(harness.trackStatusElement.textContent, "Loading tracks...");
+
+  harness.logoutButton.click();
+  entry.resolve(trackPageResponse(100, 1, ["spotify:track:a"]));
+  await settle();
+
+  assert.equal(harness.trackStatusElement.hidden, true);
+  assert.equal(harness.trackStatusElement.textContent, "");
 });
 
 test("connect recovers from a partial pending authorization write", async () => {

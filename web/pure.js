@@ -5,9 +5,16 @@
 // this file for their names.
 var TrueShuffle = (function () {
   const playlistsEndpoint = "https://api.spotify.com/v1/me/playlists";
+  const playlistEndpointPrefix = "https://api.spotify.com/v1/playlists/";
+  // The published maximum page size for the tracks endpoint. The server
+  // echoes the size it actually enforced, and offsets step by that echo.
+  const trackPageLimit = 100;
+  // Spotify caps a playlist at 10,000 items.
+  const maxPlaylistTracks = 10000;
 
   class TokenRejectedError extends Error {}
   class AuthorizationRevokedError extends TokenRejectedError {}
+  class PlaylistChangedError extends Error {}
 
   function validTokenRecord(value) {
     return value !== null &&
@@ -79,13 +86,84 @@ var TrueShuffle = (function () {
     return cursor.startsWith(playlistsEndpoint + "?");
   }
 
+  // Track-read URLs are always constructed here against the fixed API
+  // origin, never taken from a response, and Spotify-supplied playlist ids
+  // are third-party strings, so they are URI-encoded before entering a path.
+  function playlistSnapshotURL(playlistId) {
+    return playlistEndpointPrefix + encodeURIComponent(playlistId) +
+      "?fields=snapshot_id";
+  }
+
+  function trackPageURL(playlistId, offset) {
+    return playlistEndpointPrefix + encodeURIComponent(playlistId) +
+      "/tracks?fields=limit,total,items(track(uri))" +
+      "&limit=" + trackPageLimit + "&offset=" + offset;
+  }
+
+  function readPlaylistSnapshot(payload) {
+    if (!payload || typeof payload.snapshot_id !== "string" || payload.snapshot_id === "") {
+      throw new Error("Spotify returned an invalid playlist snapshot");
+    }
+    return payload.snapshot_id;
+  }
+
+  function readTrackPage(payload) {
+    if (!payload || !Array.isArray(payload.items) ||
+        !Number.isInteger(payload.limit) || payload.limit <= 0 ||
+        !Number.isInteger(payload.total) || payload.total < 0) {
+      throw new Error("Spotify returned an invalid track page");
+    }
+    const uris = [];
+    for (const item of payload.items) {
+      // Items without an exposable track URI are skipped, but the raw count
+      // keeps them so completeness is checked against what Spotify sent.
+      if (item && item.track && typeof item.track.uri === "string" && item.track.uri !== "") {
+        uris.push(item.track.uri);
+      }
+    }
+    return {limit: payload.limit, total: payload.total, count: payload.items.length, uris: uris};
+  }
+
+  function remainingTrackOffsets(pageLimit, total) {
+    if (total > maxPlaylistTracks) {
+      throw new Error("Spotify reported more tracks than a playlist can hold");
+    }
+    const offsets = [];
+    for (let offset = pageLimit; offset < total; offset += pageLimit) {
+      offsets.push(offset);
+    }
+    return offsets;
+  }
+
+  function assembleTrackPages(pages, total) {
+    // Sorting by offset makes assembly independent of completion order.
+    const ordered = pages.slice().sort((a, b) => a.offset - b.offset);
+    let count = 0;
+    const uris = [];
+    for (const page of ordered) {
+      count += page.count;
+      uris.push(...page.uris);
+    }
+    if (count !== total) {
+      throw new PlaylistChangedError("the playlist changed while its tracks were read");
+    }
+    return uris;
+  }
+
   return {
     AuthorizationRevokedError: AuthorizationRevokedError,
+    PlaylistChangedError: PlaylistChangedError,
     TokenRejectedError: TokenRejectedError,
+    assembleTrackPages: assembleTrackPages,
     buildTokenRecord: buildTokenRecord,
     playlistLabel: playlistLabel,
+    playlistSnapshotURL: playlistSnapshotURL,
     playlistsEndpoint: playlistsEndpoint,
     readPlaylistPage: readPlaylistPage,
+    readPlaylistSnapshot: readPlaylistSnapshot,
+    readTrackPage: readTrackPage,
+    remainingTrackOffsets: remainingTrackOffsets,
+    trackPageURL: trackPageURL,
     validPlaylistCursor: validPlaylistCursor,
     validTokenRecord: validTokenRecord
   };

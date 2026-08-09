@@ -7,6 +7,9 @@
   // Spotify caps a page at 50 items and a library at 10,000 playlists.
   const playlistPageLimit = 50;
   const maxPlaylistPages = 200;
+  // Wide enough to matter for a 100-page playlist, narrow enough not to
+  // invite 429s; a 429 still fails the read under the fail-fast posture.
+  const maxConcurrentTrackRequests = 6;
   // Keep the legacy namespace so the product rename preserves browser sessions.
   const tokenStorageKey = "spotify_shuffle.oauth.v1";
   const stateStorageKey = "spotify_shuffle.oauth.state.v1";
@@ -22,9 +25,14 @@
   const connectButton = document.getElementById("connect");
   const logoutButton = document.getElementById("logout");
   const playlistStatusElement = document.getElementById("playlist-status");
+  const trackStatusElement = document.getElementById("track-status");
   const playlistsElement = document.getElementById("playlists");
   let publicConfig = null;
   let selectedPlaylist = null;
+  let playlistButtons = [];
+  // The selected playlist's verified read: {id, snapshotId, uris}. This is
+  // the attachment point for caching and shuffle generation.
+  let loadedTracks = null;
 
   function renderWorking(message) {
     statusElement.textContent = message;
@@ -203,20 +211,29 @@
     playlistStatusElement.hidden = false;
   }
 
+  function renderTrackStatus(message) {
+    trackStatusElement.textContent = message;
+    trackStatusElement.hidden = false;
+  }
+
   function clearPlaylists() {
     selectedPlaylist = null;
+    loadedTracks = null;
+    playlistButtons = [];
     playlistsElement.textContent = "";
     playlistsElement.hidden = true;
     playlistStatusElement.textContent = "";
     playlistStatusElement.hidden = true;
+    trackStatusElement.textContent = "";
+    trackStatusElement.hidden = true;
   }
 
-  async function requestPlaylistPage(token, url) {
+  async function requestSpotify(token, url) {
     const response = await window.fetch(url, {
       headers: {Authorization: token.token_type + " " + token.access_token}
     });
     if (!response.ok) {
-      throw new Error("Spotify playlist request failed with status " + response.status);
+      throw new Error("Spotify request failed with status " + response.status);
     }
     return response.json();
   }
@@ -225,7 +242,7 @@
     const playlists = [];
     let url = playlistsEndpoint + "?limit=" + playlistPageLimit;
     for (let page = 0; page < maxPlaylistPages; page += 1) {
-      const payload = await requestPlaylistPage(token, url);
+      const payload = await requestSpotify(token, url);
       playlists.push(...TrueShuffle.readPlaylistPage(payload));
       if (typeof payload.next !== "string" || payload.next === "") {
         return playlists;
@@ -239,17 +256,108 @@
     throw new Error("Spotify returned more playlist pages than this app reads");
   }
 
-  function selectPlaylist(playlist, button) {
+  function setPlaylistButtonsDisabled(disabled) {
+    for (const button of playlistButtons) {
+      button.disabled = disabled;
+    }
+  }
+
+  async function fetchTrackPages(token, playlistId, offsets) {
+    const pages = [];
+    let nextIndex = 0;
+    let failure = null;
+    async function worker() {
+      // Nothing further is dispatched after the first failure, so a failed
+      // read costs at most the requests already in flight.
+      while (nextIndex < offsets.length && failure === null) {
+        const offset = offsets[nextIndex];
+        nextIndex += 1;
+        try {
+          const page = TrueShuffle.readTrackPage(
+            await requestSpotify(token, TrueShuffle.trackPageURL(playlistId, offset))
+          );
+          pages.push({offset: offset, count: page.count, uris: page.uris});
+        } catch (error) {
+          failure = failure || error;
+        }
+      }
+    }
+    const workers = [];
+    for (let slot = 0; slot < Math.min(maxConcurrentTrackRequests, offsets.length); slot += 1) {
+      workers.push(worker());
+    }
+    await Promise.all(workers);
+    if (failure !== null) {
+      throw failure;
+    }
+    return pages;
+  }
+
+  // Pin the playlist version, fetch every page, then verify the count and
+  // that the version never moved; a mutating playlist fails the read rather
+  // than silently assembling a corrupted order.
+  async function readPlaylistTracks(token, playlistId) {
+    const pinnedSnapshot = TrueShuffle.readPlaylistSnapshot(
+      await requestSpotify(token, TrueShuffle.playlistSnapshotURL(playlistId))
+    );
+    const firstPage = TrueShuffle.readTrackPage(
+      await requestSpotify(token, TrueShuffle.trackPageURL(playlistId, 0))
+    );
+    const offsets = TrueShuffle.remainingTrackOffsets(firstPage.limit, firstPage.total);
+    const pages = await fetchTrackPages(token, playlistId, offsets);
+    pages.push({offset: 0, count: firstPage.count, uris: firstPage.uris});
+    const uris = TrueShuffle.assembleTrackPages(pages, firstPage.total);
+    const confirmedSnapshot = TrueShuffle.readPlaylistSnapshot(
+      await requestSpotify(token, TrueShuffle.playlistSnapshotURL(playlistId))
+    );
+    if (confirmedSnapshot !== pinnedSnapshot) {
+      throw new TrueShuffle.PlaylistChangedError("the playlist changed while its tracks were read");
+    }
+    return {snapshotId: pinnedSnapshot, uris: uris};
+  }
+
+  function selectionActive(playlist) {
+    return selectedPlaylist !== null && selectedPlaylist.id === playlist.id;
+  }
+
+  async function loadTracks(token, playlist) {
+    loadedTracks = null;
+    setPlaylistButtonsDisabled(true);
+    renderTrackStatus("Loading tracks...");
+    try {
+      const read = await readPlaylistTracks(token, playlist.id);
+      // Disconnecting mid-read cleared the page; drop the late result.
+      if (!selectionActive(playlist)) {
+        return;
+      }
+      loadedTracks = {id: playlist.id, snapshotId: read.snapshotId, uris: read.uris};
+      renderTrackStatus("Loaded " + read.uris.length +
+        (read.uris.length === 1 ? " track." : " tracks."));
+    } catch (error) {
+      if (!selectionActive(playlist)) {
+        return;
+      }
+      renderTrackStatus(error instanceof TrueShuffle.PlaylistChangedError
+        ? "This playlist changed while loading. Select it again."
+        : "Tracks could not be loaded. Select the playlist again to retry.");
+    } finally {
+      setPlaylistButtonsDisabled(false);
+    }
+  }
+
+  function selectPlaylist(token, playlist, button) {
     if (selectedPlaylist) {
       selectedPlaylist.button.setAttribute("aria-pressed", "false");
     }
     selectedPlaylist = {id: playlist.id, name: playlist.name, button: button};
     button.setAttribute("aria-pressed", "true");
     renderPlaylistStatus("Selected " + playlist.name + ".");
+    return loadTracks(token, playlist);
   }
 
-  function renderPlaylists(playlists) {
+  function renderPlaylists(token, playlists) {
     playlistsElement.textContent = "";
+    playlistButtons = [];
     for (const playlist of playlists) {
       const button = document.createElement("button");
       button.type = "button";
@@ -257,12 +365,13 @@
       button.textContent = TrueShuffle.playlistLabel(playlist);
       button.setAttribute("aria-pressed", "false");
       button.addEventListener("click", function () {
-        selectPlaylist(playlist, button);
+        selectPlaylist(token, playlist, button);
       });
 
       const item = document.createElement("li");
       item.appendChild(button);
       playlistsElement.appendChild(item);
+      playlistButtons.push(button);
     }
     playlistsElement.hidden = false;
   }
@@ -282,7 +391,7 @@
       renderPlaylistStatus("This Spotify account has no playlists.");
       return;
     }
-    renderPlaylists(playlists);
+    renderPlaylists(token, playlists);
     renderPlaylistStatus("Select a playlist.");
   }
 

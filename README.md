@@ -22,8 +22,10 @@ time on every shuffle.
 The project currently provides a Go HTTP server with an embedded browser app,
 Spotify Authorization Code with PKCE, and a `GET /healthz` endpoint. The page
 can connect and disconnect Spotify in one browser, and lists the connected
-account's playlists so one can be selected. It does not yet read playlist
-items, cache them, or modify any playlist.
+account's playlists so one can be selected. Selecting a playlist reads its
+ordered track URIs -- concurrently across pages, guarded by a snapshot check
+that fails the read if the playlist changes mid-flight -- and shows the track
+count. It does not yet cache track lists or modify any playlist.
 
 The browser stores Spotify access and refresh tokens in `localStorage` under a
 versioned application key. The key retains the project's former
@@ -65,8 +67,8 @@ https://shuffle.p.a-9.co/callback
 
 The app requests `playlist-read-private`, `playlist-modify-public`, and
 `playlist-modify-private`. Only `playlist-read-private` is exercised today, to
-list the account's playlists. The modify grants are stored for the upcoming
-playlist management work.
+list the account's playlists and read the selected playlist's tracks. The
+modify grants are stored for the upcoming playlist management work.
 
 Check the running server with:
 

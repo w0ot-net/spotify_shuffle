@@ -16,8 +16,9 @@ classic scripts with `defer`, in order:
 
 1. `web/pure.js` defines a single `TrueShuffle` global containing the
    browser-independent value logic and error types: token-record building and
-   validation, playlist-page parsing, label formatting, and the paging-cursor
-   check.
+   validation, playlist- and track-page parsing, track URL construction and
+   offset computation, track-page assembly, label formatting, and the
+   paging-cursor check.
 2. `web/app.js` is the platform adapter. It reads `TrueShuffle` while
    loading, owns every `document`, `fetch`, storage, crypto, and history
    interaction, and wires the value logic to the page.
@@ -51,9 +52,19 @@ The page-state vocabulary the lifecycle renders:
 - connection states: working, disconnected, connected, and error (with or
   without a reconnect button);
 - playlist states: loading, listed, empty account, and failure, each a
-  distinct rendered message.
+  distinct rendered message;
+- track states: loading, loaded count, and failure, rendered in their own
+  status line.
 
-Selecting a playlist records `{id, name}` in module-scope page state and
-marks the chosen button with `aria-pressed`. Selection persists nowhere and
-issues no network request; it is the attachment point for the next increment
-(planned).
+Selecting a playlist records `{id, name}` in module-scope page state, marks
+the chosen button with `aria-pressed`, and reads the playlist's ordered
+track URIs through the protocol the
+[Spotify integration](../integration/SPOTIFY_INTEGRATION.md) page owns. The
+playlist buttons are disabled until the read settles, so one load runs at a
+time without cancellation machinery; re-selecting a playlist re-reads it. A
+verified read lands in module-scope `loadedTracks` --
+`{id, snapshotId, uris}` -- which persists nowhere and is the attachment
+point for caching and shuffle generation (planned). A failed read clears
+`loadedTracks`, renders the failure in the track status line, and leaves
+the listing, selection, and stored token untouched; a late result from a
+read that outlives its page state -- disconnecting mid-read -- is dropped.

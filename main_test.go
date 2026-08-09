@@ -49,6 +49,7 @@ func TestAppPage(t *testing.T) {
 				`id="connect"`,
 				`id="logout"`,
 				`id="playlists"`,
+				`id="track-status"`,
 			} {
 				if !strings.Contains(recorder.Body.String(), marker) {
 					t.Errorf("body does not contain %q", marker)
