@@ -97,10 +97,11 @@ notes for production facts (the `/opt/trueshuffle` layout, the release
 identity invariant, the loopback listener behind the reverse proxy). Facts
 that exist only in the private runbook do not enter the pages.
 
-**Planned behavior is quarantined.** Exactly two forward-looking statements
-are permitted, both already public in `README.md`: the modify scopes are
-granted but unexercised, and selection state is the attachment point for the
-next increment. Each is marked as planned in place.
+**Planned behavior is quarantined.** Exactly two forward-looking facts are
+permitted, both already public in `README.md`: the modify scopes are granted
+but unexercised, and selection state is the attachment point for the next
+increment. Each mention is marked as planned in place; no other future
+behavior enters the pages.
 
 **Each page carries a revision date.** `AGENTS.md` requires a revision date
 near the top when an architecture document is rewritten; the pages start with
@@ -128,13 +129,17 @@ user-facing summary the authority rules assign to it.
 - `doc/architecture/browser/APPLICATION_MODEL.md` (new): the two-script
   structure -- `web/pure.js` value logic under the greppable purity rule,
   `web/app.js` as the platform adapter consuming the `TrueShuffle` global,
-  script-order dependency, the `initialize()` lifecycle and its page states.
+  script-order dependency, and the structural lifecycle: `initialize()` as the
+  sole entry point and the page-state vocabulary. Which authorization outcome
+  produces which state belongs to the authorization page.
 - `doc/architecture/browser/AUTHORIZATION_MODEL.md` (new): Authorization Code
   with PKCE entirely in-browser; the storage model (versioned `localStorage`
   token key retaining the legacy namespace, `sessionStorage` state and
   verifier); refresh only during `initialize()` under the expiry skew; failure
-  classification -- `invalid_grant` alone clears authorization, listing
-  failures never do; disconnect semantics.
+  classification stated per path -- any callback failure clears the stored
+  record, a refresh failure clears it only on a parsed `invalid_grant`, and a
+  listing failure never does; disconnect semantics. Owns how authorization
+  outcomes map onto the page states.
 - `doc/architecture/security/SECURITY_MODEL.md` (new): the CSP and its
   rationale directive by directive, the response header set, the connect-src
   origin allowlist, bearer-token origin confinement via the cursor guard,
@@ -158,9 +163,10 @@ user-facing summary the authority rules assign to it.
   the machine-local runbook.
 - `README.md`: add a short Documentation section linking `doc/README.md` and
   the architecture index.
-- `AGENTS.md`: extend the Documentation rules with architecture-tree
-  ownership -- consult the relevant page before design work and update it in
-  the same change that alters the architecture it describes.
+- `AGENTS.md`: add one Documentation rule naming `doc/architecture/` as the
+  authority to consult for stable system design. The existing rule to update
+  affected documentation alongside code already covers keeping it current and
+  is not restated.
 
 ## Implementation Sequence
 
@@ -194,7 +200,7 @@ Content review against the sources of truth:
 - Production facts only from completed-plan execution notes already in the
   repository; no hostname, path, or procedure that exists solely in the
   private runbook.
-- Exactly the two permitted planned-behavior statements, both marked planned.
+- Only the two permitted planned facts appear, every mention marked planned.
 
 No Go, Node, or live-service validation applies to a documentation-only
 change.
