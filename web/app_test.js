@@ -305,6 +305,7 @@ function createHarness(options) {
   const likedStatusElement = new FakeElement(true);
   const likedConnectButton = new FakeElement(true);
   const likedLoadButton = new FakeElement(true);
+  const likedShuffleButton = new FakeElement(true);
   const elements = {
     status: statusElement,
     connect: connectButton,
@@ -315,7 +316,8 @@ function createHarness(options) {
     playlists: playlistsElement,
     "liked-status": likedStatusElement,
     "liked-connect": likedConnectButton,
-    "liked-load": likedLoadButton
+    "liked-load": likedLoadButton,
+    "liked-shuffle": likedShuffleButton
   };
   const localStorage = options.localStorage || new FakeStorage();
   const sessionStorage = options.sessionStorage || new FakeStorage();
@@ -360,6 +362,12 @@ function createHarness(options) {
       if (url.startsWith("https://api.spotify.com/v1/me/tracks") && options.likedHandler) {
         return options.likedHandler(url, requestOptions);
       }
+      if (url === "https://api.spotify.com/v1/me" && options.meHandler) {
+        return options.meHandler(url, requestOptions);
+      }
+      if (url.startsWith("https://api.spotify.com/v1/users/") && options.createPlaylistHandler) {
+        return options.createPlaylistHandler(url, requestOptions);
+      }
       if (url.startsWith("https://api.spotify.com/v1/playlists/") && options.trackHandler) {
         return options.trackHandler(url, requestOptions);
       }
@@ -402,7 +410,8 @@ function createHarness(options) {
     trackStatusElement: trackStatusElement,
     likedStatusElement: likedStatusElement,
     likedConnectButton: likedConnectButton,
-    likedLoadButton: likedLoadButton
+    likedLoadButton: likedLoadButton,
+    likedShuffleButton: likedShuffleButton
   };
 }
 
@@ -1250,4 +1259,165 @@ test("disconnecting clears the Liked Songs section", async () => {
   assert.equal(harness.likedStatusElement.textContent, "");
   assert.equal(harness.likedConnectButton.hidden, true);
   assert.equal(harness.likedLoadButton.hidden, true);
+});
+
+// A working write-path world for one liked library: profile, playlist
+// creation, batch appends (recorded), and the final total verification.
+function shuffleWorld(likedURIs) {
+  const world = {appendedBatches: [], createBodies: []};
+  world.options = {
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    likedHandler: steadyLikedHandler(50, likedURIs),
+    meHandler: () => jsonResponse(200, {id: "user-1"}),
+    createPlaylistHandler: (url, requestOptions) => {
+      assert.equal(url, "https://api.spotify.com/v1/users/user-1/playlists");
+      assert.equal(requestOptions.method, "POST");
+      const body = JSON.parse(requestOptions.body);
+      world.createBodies.push(body);
+      return jsonResponse(200, {id: "new-pl", name: body.name});
+    },
+    trackHandler: (url, requestOptions) => {
+      if (url === "https://api.spotify.com/v1/playlists/new-pl/tracks") {
+        assert.equal(requestOptions.method, "POST");
+        world.appendedBatches.push(JSON.parse(requestOptions.body).uris);
+        return jsonResponse(201, {snapshot_id: "write-snap"});
+      }
+      if (url === "https://api.spotify.com/v1/playlists/new-pl?fields=tracks.total") {
+        const written = world.appendedBatches.reduce((sum, batch) => sum + batch.length, 0);
+        return jsonResponse(200, {tracks: {total: written}});
+      }
+      throw new Error("unexpected playlist request: " + url);
+    }
+  };
+  return world;
+}
+
+async function loadLiked(harness) {
+  await settle();
+  harness.likedLoadButton.click();
+  await settle();
+}
+
+test("shuffling Liked Songs creates one new private playlist with every track", async () => {
+  const uris = ["spotify:track:a", "spotify:track:b", "spotify:track:c"];
+  const world = shuffleWorld(uris);
+  const harness = createHarness(world.options);
+
+  await loadLiked(harness);
+  assert.equal(harness.likedShuffleButton.hidden, false, "the shuffle action appears after a load");
+
+  harness.likedShuffleButton.click();
+  await settle();
+
+  assert.equal(world.createBodies.length, 1, "exactly one playlist is created");
+  assert.match(world.createBodies[0].name, /^Liked Shuffle \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+  assert.equal(world.createBodies[0].public, false);
+  assert.equal(world.appendedBatches.length, 1);
+  assert.deepEqual(world.appendedBatches[0].slice().sort(), uris.slice().sort(),
+    "the new playlist holds exactly the liked tracks, reordered");
+  assert.match(
+    harness.likedStatusElement.textContent,
+    /^Created "Liked Shuffle .+" with 3 tracks in \d+\.\ds\.$/
+  );
+  assert.equal(harness.trackProgressElement.hidden, true);
+  assert.equal(harness.likedShuffleButton.disabled, false);
+});
+
+test("shuffle appends run sequentially in batches of at most 100", async () => {
+  const uris = [];
+  for (let index = 0; index < 250; index += 1) {
+    uris.push("spotify:track:" + index);
+  }
+  const world = shuffleWorld(uris);
+  const harness = createHarness(world.options);
+
+  await loadLiked(harness);
+  harness.likedShuffleButton.click();
+  await settle();
+
+  assert.deepEqual(world.appendedBatches.map((batch) => batch.length), [100, 100, 50]);
+  const written = world.appendedBatches.flat();
+  assert.deepEqual(written.slice().sort(), uris.slice().sort());
+  assert.match(
+    harness.likedStatusElement.textContent,
+    /^Created "Liked Shuffle .+" with 250 tracks in \d+\.\ds\.$/
+  );
+});
+
+test("a failed append names the possibly partial playlist", async () => {
+  const uris = [];
+  for (let index = 0; index < 150; index += 1) {
+    uris.push("spotify:track:" + index);
+  }
+  const world = shuffleWorld(uris);
+  const workingTrackHandler = world.options.trackHandler;
+  world.options.trackHandler = (url, requestOptions) => {
+    if (url === "https://api.spotify.com/v1/playlists/new-pl/tracks" &&
+        world.appendedBatches.length === 1) {
+      return jsonResponse(500, {error: {status: 500}});
+    }
+    return workingTrackHandler(url, requestOptions);
+  };
+  const harness = createHarness(world.options);
+
+  await loadLiked(harness);
+  harness.likedShuffleButton.click();
+  await settle();
+
+  assert.match(
+    harness.likedStatusElement.textContent,
+    /^"Liked Shuffle .+" may be incomplete\. Delete it in Spotify or shuffle again\.$/
+  );
+  assert.equal(harness.trackProgressElement.hidden, true);
+});
+
+test("a verification shortfall never claims success", async () => {
+  const uris = ["spotify:track:a", "spotify:track:b"];
+  const world = shuffleWorld(uris);
+  const workingTrackHandler = world.options.trackHandler;
+  world.options.trackHandler = (url, requestOptions) => {
+    if (url === "https://api.spotify.com/v1/playlists/new-pl?fields=tracks.total") {
+      return jsonResponse(200, {tracks: {total: 1}});
+    }
+    return workingTrackHandler(url, requestOptions);
+  };
+  const harness = createHarness(world.options);
+
+  await loadLiked(harness);
+  harness.likedShuffleButton.click();
+  await settle();
+
+  assert.match(harness.likedStatusElement.textContent, /may be incomplete/);
+});
+
+test("a library above the playlist cap writes nothing", async () => {
+  const uris = [];
+  for (let index = 0; index < 10001; index += 1) {
+    uris.push("spotify:track:" + index);
+  }
+  const world = shuffleWorld(uris);
+  const harness = createHarness(world.options);
+
+  await loadLiked(harness);
+  assert.match(harness.likedStatusElement.textContent, /^Loaded 10001 tracks in \d+\.\ds\.$/);
+
+  harness.likedShuffleButton.click();
+  await settle();
+
+  assert.equal(
+    harness.likedStatusElement.textContent,
+    "Liked Songs holds more than 10,000 tracks, the most a playlist can contain."
+  );
+  assert.equal(world.createBodies.length, 0);
+  assert.equal(world.appendedBatches.length, 0);
+});
+
+test("an empty library never offers the shuffle action", async () => {
+  const world = shuffleWorld([]);
+  const harness = createHarness(world.options);
+
+  await loadLiked(harness);
+
+  assert.match(harness.likedStatusElement.textContent, /^Loaded 0 tracks in \d+\.\ds\.$/);
+  assert.equal(harness.likedShuffleButton.hidden, true);
 });

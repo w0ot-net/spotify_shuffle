@@ -58,7 +58,10 @@ The page-state vocabulary the lifecycle renders:
   rendered in their own status line;
 - liked states: reconnect required (token predates `user-library-read`),
   loadable, loading, loaded count with elapsed time, and failure, in the
-  Liked Songs section's own status line.
+  Liked Songs section's own status line;
+- shuffle states: creating (bar tracks appended batches), created (naming
+  the new playlist with count and elapsed time), incomplete (naming the
+  partial playlist), and cap exceeded.
 
 Selecting a playlist records `{id, name}` in module-scope page state, marks
 the chosen button with `aria-pressed`, and loads the playlist's ordered
@@ -77,9 +80,13 @@ seconds; a cache hit renders instantly with neither bar nor duration. One operat
 time: every action button -- the playlist buttons and the Liked Songs
 section's -- is disabled until the active load settles, which is also what
 lets the single progress element serve every operation. A loaded Liked
-Songs library lands in module-scope `likedTracks` (`{uris}`), the input
-for the shuffled-playlist increment; it is page state only and is never
-cached, because the library has no snapshot to validate against. Either path lands the list in module-scope
+Songs library lands in module-scope `likedTracks` (`{uris}`); it is page
+state only and is never cached, because the library has no snapshot to
+validate against. A successful load reveals the shuffle action, which
+Fisher-Yates-shuffles the loaded URIs with crypto-backed unbiased
+randomness (the pure shuffle takes the randomness as an argument) and
+writes them to a brand-new private playlist through the write flow the
+[Spotify integration](../integration/SPOTIFY_INTEGRATION.md) page owns. Either path lands the list in module-scope
 `loadedTracks` -- `{id, snapshotId, uris}` -- the attachment point for
 shuffle generation (planned). A failed read clears `loadedTracks`, renders
 the failure in the track status line, and leaves the listing, selection,

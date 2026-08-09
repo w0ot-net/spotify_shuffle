@@ -9,6 +9,10 @@ var TrueShuffle = (function () {
   const likedTracksEndpoint = "https://api.spotify.com/v1/me/tracks";
   // The saved-tracks endpoint maximum; it supports no fields filtering.
   const likedPageLimit = 50;
+  const meEndpoint = "https://api.spotify.com/v1/me";
+  const usersEndpointPrefix = "https://api.spotify.com/v1/users/";
+  // The add-tracks endpoint accepts at most 100 URIs per request.
+  const addTracksBatchLimit = 100;
   // The published maximum page size for the tracks endpoint. The server
   // echoes the size it actually enforced, and offsets step by that echo.
   const trackPageLimit = 100;
@@ -134,6 +138,74 @@ var TrueShuffle = (function () {
     return likedTracksEndpoint + "?limit=" + likedPageLimit + "&offset=" + offset;
   }
 
+  function createPlaylistURL(userId) {
+    return usersEndpointPrefix + encodeURIComponent(userId) + "/playlists";
+  }
+
+  function addTracksURL(playlistId) {
+    return playlistEndpointPrefix + encodeURIComponent(playlistId) + "/tracks";
+  }
+
+  function playlistTotalURL(playlistId) {
+    return playlistEndpointPrefix + encodeURIComponent(playlistId) +
+      "?fields=tracks.total";
+  }
+
+  function readUserId(payload) {
+    if (!payload || typeof payload.id !== "string" || payload.id === "") {
+      throw new Error("Spotify returned an invalid user profile");
+    }
+    return payload.id;
+  }
+
+  function readCreatedPlaylist(payload) {
+    if (!payload || typeof payload.id !== "string" || payload.id === "") {
+      throw new Error("Spotify returned an invalid created playlist");
+    }
+    return {
+      id: payload.id,
+      name: typeof payload.name === "string" && payload.name !== "" ? payload.name : "New playlist"
+    };
+  }
+
+  function readPlaylistTotal(payload) {
+    if (!payload || !payload.tracks ||
+        !Number.isInteger(payload.tracks.total) || payload.tracks.total < 0) {
+      throw new Error("Spotify returned an invalid playlist total");
+    }
+    return payload.tracks.total;
+  }
+
+  // Fisher-Yates with injected randomness so the shuffle is directly
+  // testable; every index the source produces is validated before use.
+  function shuffledURIs(uris, randomBelow) {
+    const shuffled = uris.slice();
+    for (let i = shuffled.length - 1; i > 0; i -= 1) {
+      const j = randomBelow(i + 1);
+      if (!Number.isInteger(j) || j < 0 || j > i) {
+        throw new Error("the shuffle randomness source returned an invalid index");
+      }
+      const swap = shuffled[i];
+      shuffled[i] = shuffled[j];
+      shuffled[j] = swap;
+    }
+    return shuffled;
+  }
+
+  function uriBatches(uris) {
+    const batches = [];
+    for (let start = 0; start < uris.length; start += addTracksBatchLimit) {
+      batches.push(uris.slice(start, start + addTracksBatchLimit));
+    }
+    return batches;
+  }
+
+  function createdPlaylistMessage(name, count, elapsedMilliseconds) {
+    return "Created \"" + name + "\" with " + count +
+      (count === 1 ? " track" : " tracks") +
+      " in " + (Math.max(0, elapsedMilliseconds) / 1000).toFixed(1) + "s.";
+  }
+
   function hasScope(scope, name) {
     return scope.split(" ").includes(name);
   }
@@ -219,21 +291,31 @@ var TrueShuffle = (function () {
     AuthorizationRevokedError: AuthorizationRevokedError,
     PlaylistChangedError: PlaylistChangedError,
     TokenRejectedError: TokenRejectedError,
+    addTracksURL: addTracksURL,
     assembleTrackPages: assembleTrackPages,
     buildTokenRecord: buildTokenRecord,
     countTrackChanges: countTrackChanges,
+    createPlaylistURL: createPlaylistURL,
+    createdPlaylistMessage: createdPlaylistMessage,
     hasScope: hasScope,
     likedPageURL: likedPageURL,
     loadedTracksMessage: loadedTracksMessage,
     maxPlaylistTracks: maxPlaylistTracks,
+    meEndpoint: meEndpoint,
     playlistLabel: playlistLabel,
     playlistSnapshotURL: playlistSnapshotURL,
+    playlistTotalURL: playlistTotalURL,
     playlistsEndpoint: playlistsEndpoint,
+    readCreatedPlaylist: readCreatedPlaylist,
     readPlaylistPage: readPlaylistPage,
     readPlaylistSnapshot: readPlaylistSnapshot,
+    readPlaylistTotal: readPlaylistTotal,
     readTrackPage: readTrackPage,
+    readUserId: readUserId,
     remainingTrackOffsets: remainingTrackOffsets,
+    shuffledURIs: shuffledURIs,
     trackPageURL: trackPageURL,
+    uriBatches: uriBatches,
     validPlaylistCursor: validPlaylistCursor,
     validTokenRecord: validTokenRecord,
     validTrackCacheRecord: validTrackCacheRecord

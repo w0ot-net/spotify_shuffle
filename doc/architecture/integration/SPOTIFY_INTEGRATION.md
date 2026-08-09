@@ -20,6 +20,12 @@ All Spotify traffic originates in the browser. Five endpoints are in use:
   reading the selected playlist's track URIs.
 - `https://api.spotify.com/v1/me/tracks` -- authenticated GET reading the
   account's Liked Songs library.
+- `https://api.spotify.com/v1/me` -- authenticated GET for the user id a
+  playlist creation needs.
+- `https://api.spotify.com/v1/users/{id}/playlists` -- authenticated POST
+  creating the private shuffled playlist.
+- `https://api.spotify.com/v1/playlists/{id}/tracks` -- authenticated POST
+  appending shuffled URIs to the playlist this app just created.
 
 ## Paging
 
@@ -75,6 +81,20 @@ Reading the library requires `user-library-read` (see the
 [authorization model](../browser/AUTHORIZATION_MODEL.md) for how older
 tokens are gated to a reconnect).
 
+## Writing the shuffled playlist
+
+The only write flow creates a new private playlist and fills it: read the
+user id, `POST` the playlist, then append the shuffled URIs with
+sequential `POST` batches of at most 100 -- sequential because each append
+lands at the playlist's end, so arrival order is the shuffled order. After
+the last batch, a `fields=tracks.total` read of the new playlist must
+equal the written count or the flow reports the playlist as possibly
+incomplete, naming it for manual cleanup; it never claims success on a
+shortfall. No pre-existing playlist is ever written, so a failure strands
+at worst a partial playlist this app just created. A library above the
+10,000-item playlist cap fails before anything is created. This flow is
+the first exercise of `playlist-modify-private`.
+
 ## Snapshot semantics
 
 `snapshot_id` is an opaque version stamp that changes on every playlist
@@ -99,7 +119,8 @@ is to be designed from recorded live observations, not ahead of them.
 
 ## Scopes
 
-`playlist-read-private` is exercised by listing and track reading.
-`playlist-modify-public` and `playlist-modify-private` are granted at
-consent but unexercised -- held so the upcoming write increment needs no
-re-consent (planned).
+`playlist-read-private` is exercised by listing and track reading,
+`user-library-read` by the Liked Songs read, and
+`playlist-modify-private` by the shuffled-playlist creation.
+`playlist-modify-public` is granted but unexercised -- held so the
+in-place playlist shuffle needs no re-consent (planned).

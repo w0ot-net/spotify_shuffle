@@ -10,8 +10,10 @@ Authorization Code with PKCE runs entirely in the browser. The Go service
 supplies only the public client ID through `/api/config`; it never sees an
 authorization code, verifier, or token. The app requests the scopes
 `playlist-read-private`, `playlist-modify-public`,
-`playlist-modify-private`, and `user-library-read`; the modify scopes are
-granted but unexercised today, held for the upcoming write work (planned).
+`playlist-modify-private`, and `user-library-read`.
+`playlist-modify-private` is exercised by the shuffled-playlist creation;
+`playlist-modify-public` is granted but unexercised, held for the
+in-place playlist shuffle (planned).
 
 A stored token's `scope` value gates capabilities added after it was
 granted: a token without `user-library-read` keeps working for playlists

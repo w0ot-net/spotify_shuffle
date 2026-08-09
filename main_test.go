@@ -54,6 +54,7 @@ func TestAppPage(t *testing.T) {
 				`id="liked-status"`,
 				`id="liked-connect"`,
 				`id="liked-load"`,
+				`id="liked-shuffle"`,
 			} {
 				if !strings.Contains(recorder.Body.String(), marker) {
 					t.Errorf("body does not contain %q", marker)

@@ -32,8 +32,9 @@ and a changed playlist is re-read and reports how many tracks were added and
 removed since the last read. A Liked Songs section reads the account's
 complete saved-tracks library the same way (Liked Songs is not a playlist
 and cannot be reordered in place; connections made before this feature show
-a one-time reconnect to grant the library scope). It does not yet modify
-any playlist.
+a one-time reconnect to grant the library scope) and can then create a new
+private playlist containing every liked track in a random order. Existing
+playlists are never modified.
 
 The browser stores Spotify access and refresh tokens in `localStorage` under a
 versioned application key. The key retains the project's former
@@ -76,8 +77,9 @@ https://shuffle.p.a-9.co/callback
 The app requests `playlist-read-private`, `playlist-modify-public`,
 `playlist-modify-private`, and `user-library-read`. The read scopes are
 exercised to list playlists, read the selected playlist's tracks, and read
-Liked Songs. The modify grants are stored for the upcoming playlist
-management work.
+Liked Songs; `playlist-modify-private` creates the private shuffled
+playlists. `playlist-modify-public` is stored for the upcoming in-place
+shuffle work.
 
 Check the running server with:
 

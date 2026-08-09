@@ -338,3 +338,96 @@ test("buildTokenRecord rejects incomplete responses as TokenRejectedError", () =
     );
   }
 });
+
+test("write-path URLs are built on the API origin with ids encoded", () => {
+  assert.equal(TrueShuffle.meEndpoint, "https://api.spotify.com/v1/me");
+  assert.equal(
+    TrueShuffle.createPlaylistURL("user/1"),
+    "https://api.spotify.com/v1/users/user%2F1/playlists"
+  );
+  assert.equal(
+    TrueShuffle.addTracksURL("pl?1"),
+    "https://api.spotify.com/v1/playlists/pl%3F1/tracks"
+  );
+  assert.equal(
+    TrueShuffle.playlistTotalURL("pl1"),
+    "https://api.spotify.com/v1/playlists/pl1?fields=tracks.total"
+  );
+});
+
+test("write-path readers validate their payloads", () => {
+  assert.equal(TrueShuffle.readUserId({id: "user-1"}), "user-1");
+  for (const payload of [null, {}, {id: ""}, {id: 7}]) {
+    assert.throws(() => TrueShuffle.readUserId(payload), /invalid user profile/);
+  }
+
+  assert.deepEqual(
+    plain(TrueShuffle.readCreatedPlaylist({id: "pl-1", name: "Liked Shuffle"})),
+    {id: "pl-1", name: "Liked Shuffle"}
+  );
+  assert.equal(TrueShuffle.readCreatedPlaylist({id: "pl-1", name: ""}).name, "New playlist");
+  for (const payload of [null, {}, {id: ""}, {name: "x"}]) {
+    assert.throws(() => TrueShuffle.readCreatedPlaylist(payload), /invalid created playlist/);
+  }
+
+  assert.equal(TrueShuffle.readPlaylistTotal({tracks: {total: 0}}), 0);
+  assert.equal(TrueShuffle.readPlaylistTotal({tracks: {total: 4212}}), 4212);
+  for (const payload of [null, {}, {tracks: {}}, {tracks: {total: -1}}, {tracks: {total: "3"}}]) {
+    assert.throws(() => TrueShuffle.readPlaylistTotal(payload), /invalid playlist total/);
+  }
+});
+
+test("shuffledURIs applies Fisher-Yates with the injected randomness", () => {
+  const sequence = [2, 1, 1];
+  const shuffled = TrueShuffle.shuffledURIs(["a", "b", "c", "d"], () => sequence.shift());
+  assert.deepEqual(plain(shuffled), ["a", "d", "b", "c"]);
+  assert.equal(sequence.length, 0, "one draw per Fisher-Yates step");
+});
+
+test("shuffledURIs preserves the multiset and the source array", () => {
+  const source = ["a", "b", "a", "c", "b", "a"];
+  const copy = source.slice();
+  const shuffled = TrueShuffle.shuffledURIs(source, (n) => n - 1);
+  assert.deepEqual(plain(source), copy, "the input is never mutated");
+  assert.deepEqual(plain(shuffled).slice().sort(), copy.slice().sort());
+  assert.deepEqual(plain(TrueShuffle.shuffledURIs([], () => 0)), []);
+  assert.deepEqual(plain(TrueShuffle.shuffledURIs(["only"], () => 0)), ["only"]);
+});
+
+test("shuffledURIs rejects invalid randomness", () => {
+  for (const bad of [() => -1, (n) => n, () => 0.5, () => "0"]) {
+    assert.throws(
+      () => TrueShuffle.shuffledURIs(["a", "b"], bad),
+      /invalid index/
+    );
+  }
+});
+
+test("uriBatches splits at 100 preserving order", () => {
+  assert.deepEqual(plain(TrueShuffle.uriBatches([])), []);
+  const uris = [];
+  for (let index = 0; index < 201; index += 1) {
+    uris.push("u" + index);
+  }
+  assert.deepEqual(plain(TrueShuffle.uriBatches(uris.slice(0, 100))), [uris.slice(0, 100)]);
+  const batches = TrueShuffle.uriBatches(uris);
+  assert.deepEqual(plain(batches.map((batch) => batch.length)), [100, 100, 1]);
+  assert.deepEqual(plain(batches[0][0]), "u0");
+  assert.deepEqual(plain(batches[1][0]), "u100");
+  assert.deepEqual(plain(batches[2][0]), "u200");
+});
+
+test("createdPlaylistMessage names the playlist with count and duration", () => {
+  assert.equal(
+    TrueShuffle.createdPlaylistMessage("Liked Shuffle 2026-08-09 21:40", 4212, 8160),
+    "Created \"Liked Shuffle 2026-08-09 21:40\" with 4212 tracks in 8.2s."
+  );
+  assert.equal(
+    TrueShuffle.createdPlaylistMessage("X", 1, 0),
+    "Created \"X\" with 1 track in 0.0s."
+  );
+  assert.equal(
+    TrueShuffle.createdPlaylistMessage("X", 2, -9),
+    "Created \"X\" with 2 tracks in 0.0s."
+  );
+});
