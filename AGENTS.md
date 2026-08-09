@@ -1,6 +1,6 @@
 # Agent Guidance
 
-This repository is `spotify_shuffle`. It is an early-stage project; do not
+This repository is `trueshuffle`. It is an early-stage project; do not
 describe planned behavior as implemented behavior.
 
 Repository workflow:

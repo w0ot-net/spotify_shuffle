@@ -3,6 +3,7 @@
 
   const authorizeEndpoint = "https://accounts.spotify.com/authorize";
   const tokenEndpoint = "https://accounts.spotify.com/api/token";
+  // Keep the legacy namespace so the product rename preserves browser sessions.
   const tokenStorageKey = "spotify_shuffle.oauth.v1";
   const stateStorageKey = "spotify_shuffle.oauth.state.v1";
   const verifierStorageKey = "spotify_shuffle.oauth.verifier.v1";

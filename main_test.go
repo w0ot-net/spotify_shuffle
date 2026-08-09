@@ -45,7 +45,7 @@ func TestAppPage(t *testing.T) {
 			assertBrowserSecurityHeaders(t, recorder.Header())
 			for _, marker := range []string{
 				`<meta name="viewport" content="width=device-width, initial-scale=1">`,
-				"<h1>Spotify Shuffle</h1>",
+				"<h1>TrueShuffle</h1>",
 				`id="connect"`,
 				`id="logout"`,
 				`<script src="/app.js" defer></script>`,

@@ -100,8 +100,9 @@ Extend the README test section with the Node requirement and the exact built-in 
   - dependency-free authentication lifecycle tests.
 - `README.md`
   - reproducible JavaScript test instructions.
-- Deployed `spotify-shuffle` binary
-  - rebuilt and installed through the established remote repository workflow after validation.
+- Deployed TrueShuffle application
+  - rebuilt and installed through the established remote repository workflow after validation;
+  - current host paths and the systemd unit retain their legacy `spotify-shuffle` identifiers.
 
 No changes are expected in `main.go`, `main_test.go`, the HTML/CSS, server configuration, or Spotify application configuration.
 

@@ -1,4 +1,4 @@
-# Spotify Shuffle
+# TrueShuffle
 
 A planned mobile-friendly web utility for quickly reshuffling large Spotify
 playlists.
@@ -25,7 +25,9 @@ can connect and disconnect Spotify in one browser. It does not yet read or
 modify playlists.
 
 The browser stores Spotify access and refresh tokens in `localStorage` under a
-versioned application key. Temporary OAuth state and the PKCE verifier use
+versioned application key. The key retains the project's former
+`spotify_shuffle` namespace so browsers authorized before the TrueShuffle
+rename stay connected. Temporary OAuth state and the PKCE verifier use
 `sessionStorage`. The Go service receives neither token and exposes only the
 public Spotify client ID.
 
