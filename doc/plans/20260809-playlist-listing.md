@@ -1,5 +1,7 @@
 # Plan: Playlist Listing
 
+*Distilled: 2026-08-09*
+
 ## Summary
 
 Read the signed-in user's Spotify playlists and render them as a selectable
