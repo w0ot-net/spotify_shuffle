@@ -29,8 +29,10 @@ In scope:
   lacks `user-library-read`, its click starts the reconnect authorization
   and its label says so.
 - Hide playlists whose name ends with the ` TrueShuffle` suffix from the
-  rendered list while keeping the full listing retained for the write
-  flow's target lookup.
+  rendered list, and render only the first instance of each name -- the
+  Liked Songs row is always first, so a playlist named "Liked Songs" is
+  shadowed by it. The full listing stays retained for the write flow's
+  target lookup.
 - One click on any row runs load, shuffle, and create-or-overwrite as a
   single sequence, reusing the existing cache-first playlist load, the
   Liked Songs library read, and the derived-target write flow; a source
@@ -68,10 +70,17 @@ the `likedToken`/`likedTracks` parallel state and the second status
 surface.
 
 **Display filtering is not data filtering.** The retained listing keeps
-every playlist; only the row renderer skips derived names. The write
-flow's target lookup must keep seeing derived playlists or every shuffle
-would create a duplicate, so the filter lives at render time and nowhere
-else.
+every playlist; only the row renderer skips derived names and duplicate
+names, keeping the first instance of each in listing order with the Liked
+Songs row counting as the first "Liked Songs". The write flow's target
+lookup must keep seeing every playlist or a shuffle would create a
+duplicate target, so both filters live at render time and nowhere else.
+
+**Visible names are unique, so targets are unambiguous.** Deduplication
+makes name-keyed targets injective from the visible list: no two
+clickable rows can share a derived target, which retires the
+shared-target surprise duplicate names would otherwise cause. A shadowed
+duplicate is unshuffleable until renamed in Spotify, an accepted cost.
 
 **One in-flight operation, one progress element.** The existing
 action-button gate carries over: every row disables while a click's
@@ -102,7 +111,8 @@ shares.
   buttons.
 - `main_test.go`: page markers for the removed liked elements.
 - `web/pure_test.js`: filter cases -- derived names hidden, near-miss
-  names kept -- and label cases.
+  names kept, duplicate names reduced to the first instance, a "Liked
+  Songs" playlist shadowed by the liked row -- and label cases.
 - `web/app_test.js`: one click on a playlist row runs read, shuffle, and
   write in order; one click on the liked row does the same through the
   library read; a cache hit skips straight to the write; derived rows are
@@ -155,7 +165,8 @@ reconnect row -- follows explicit user direction, per `AGENTS.md`.
 ## Success Criteria
 
 - The page shows exactly one list: Liked Songs first, non-derived
-  playlists after it, derived playlists nowhere.
+  playlists after it, derived playlists nowhere, and no two rows sharing
+  a name.
 - One click on any row ends with "Created" or "Updated"
   `"<name> TrueShuffle"` and the count, with progress visible during the
   read and the write; a second click on the same row re-shuffles the same
