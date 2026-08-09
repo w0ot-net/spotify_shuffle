@@ -125,3 +125,74 @@ No repository implementation component changes during execution.
 - No temporary or rollback binary remains after success.
 - Apache, DNS, certificates, public routing, and repository implementation code
   remain unchanged.
+
+## Execution Notes
+
+Completed on 2026-08-09.
+
+Implemented behavior:
+
+- Created the root-owned public checkout at `/root/tools/spotify_shuffle` with
+  origin `https://github.com/w0ot-net/spotify_shuffle.git` on `main`.
+- Ran the repository tests and built the application on the deployment host.
+- Installed a clean build of commit
+  `0e5b5da721d6b3aa8dc3ebe759bc14314d1cafe2` with SHA-256
+  `03762697af6922e9824fa0afb0c28ea0ea3d6e9bbe11978dc2a918f8cc2d4c9d`.
+- Retained the existing host-local unit and restarted it against the newly
+  installed binary.
+- Verified that future updates can begin with `git pull --ff-only`; the checkout
+  reported `Already up to date` before this completion record was committed.
+
+Changed ownership boundaries:
+
+- `/root/tools/spotify_shuffle` now owns the administrative source checkout and
+  remote test/build workflow.
+- `/opt/spotify_shuffle/spotify_shuffle` remains the runtime executable owned by
+  root.
+- `spotify-shuffle.service` continues to own the process lifecycle and dynamic
+  runtime identity without any unit-file change.
+
+Deviations and corrections:
+
+- The original version of this plan was partially executed before the user
+  requested a remote checkout workflow. That execution created the existing
+  unit and installed a transferred binary. Commit `0e5b5da` revised the plan;
+  the healthy unit was retained while the source and binary update workflow was
+  migrated.
+- The first atomic replacement attempt correctly rolled back because a
+  validation expression searched for a literal `\\t` rather than the tab in
+  `go version -m` output. The previous binary and active service were confirmed
+  restored, the check was changed to compare metadata values, and the same
+  atomic replacement then succeeded.
+
+Validation:
+
+- Remote `go test ./...`: passed.
+- Checkout origin, `main` branch, clean status, and exact commit: verified.
+- `file` and `go version -m`: verified a Linux x86-64 Go binary with clean VCS
+  revision `0e5b5da721d6b3aa8dc3ebe759bc14314d1cafe2`.
+- Temporary and installed SHA-256: matched
+  `03762697af6922e9824fa0afb0c28ea0ea3d6e9bbe11978dc2a918f8cc2d4c9d`.
+- Service: enabled, active, `DynamicUser=yes`, and zero automatic restarts.
+- Listener: only `127.0.0.1:5107`.
+- Root page and `/healthz`: both returned status `200` with their complete
+  documented content contracts.
+- Systemd unit SHA-256 remained
+  `46aefb541745c84527be634a7c96beffbec8f2a6dfb1652ceb5e978d9132cdaa`.
+- Apache HTTP and HTTPS vhost hashes remained
+  `defb4da4dd0c52e18b575cf64751d9132f447a8cf4771cff40483eee7bf8f29a`
+  and `8580ee6b0f185bcd6f2e62813d2a68937e935629837613068805b9b4cbb2ee58`.
+- Service journal contained no warning-or-higher entries after the successful
+  deployment.
+- No generated, staged, or rollback binary remained after validation.
+
+Repository commits:
+
+- `0e5b5da` (`Revise deployment for remote checkout`) is the plan revision and
+  deployed source commit. Host deployment state has no separate implementation
+  commit because the application code and private unit were unchanged.
+
+Unresolved blockers and excluded follow-up:
+
+- None. Apache proxying and public application routing remain deliberately
+  outside this completed plan.
