@@ -295,8 +295,17 @@ Local validation, all passing:
   violation or script error, proving both scripts load in order and the
   global resolves.
 
-Remaining before this plan can be completed:
+Deployment, completed 2026-08-09 with explicit user direction under the
+private operations runbook, as one release with the playlist-listing change:
 
-- The gated deployment and its conditional validation, shared with
-  `20260809-playlist-listing.md`; both changes ship in one release when the
-  user authorizes it.
+- Release revision `869dbf8d969e4a299b118255808ab9af9b130486` (embedded
+  `vcs.revision` verified, `vcs.modified` false), binary SHA-256
+  `78800302947438eb9027e956cedd84fd3bfdc29889356d52ae2363ea2134fc1b`,
+  installed with the previous release retained and the `current` symlink
+  switched atomically.
+- Host validation passed: Go suite, `go vet`, `node --check` on all four
+  browser files, and 25 of 25 browser tests via direct `node` execution.
+- Post-restart: service active, zero restarts, loopback-only listener, and
+  `/pure.js` serving 200 with `text/javascript; charset=utf-8` on both the
+  loopback listener and the public origin. Public `/` and `/healthz` healthy;
+  no warning-or-higher journal entries.

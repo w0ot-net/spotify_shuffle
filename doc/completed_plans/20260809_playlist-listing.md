@@ -224,14 +224,31 @@ Local validation, all passing:
 - `node --test web/app_test.js`: 16 passed, 0 failed.
 - `git diff --check`: clean.
 
-Remaining before this plan can be completed:
+Deployment, completed 2026-08-09 with explicit user direction under the
+private operations runbook:
 
-- Deployment (step 7) and its validation. Production work now routes through
-  the private operations runbook named in `AGENTS.md`, and a repository task
-  does not by itself authorize a live deployment, so this step needs explicit
-  user direction. Independently, the development workspace has no
-  `/opt/trueshuffle` and cannot complete TLS to the public origin.
-- Nothing else. Manual browser validation against a live Spotify account is
-  conditional on explicit user authorization and is not a completion blocker;
-  the paging, empty, failure, and selection paths are covered
-  deterministically by `web/app_test.js`.
+- Deployed as one release together with the browser pure-logic module change.
+  The release revision is `869dbf8d969e4a299b118255808ab9af9b130486`, whose
+  tree contains this plan's implementation commit `eae9283`; the binary's
+  embedded `vcs.revision` matches and `vcs.modified` is false. Binary SHA-256
+  `78800302947438eb9027e956cedd84fd3bfdc29889356d52ae2363ea2134fc1b`.
+- The production checkout fast-forwarded cleanly, and the full Go and
+  JavaScript suites passed on the host (25 of 25 browser tests via direct
+  `node` execution per the host's recorded `node --test` limitation).
+- The previous release `7814648...` was retained and the `current` symlink
+  switched atomically. After restart: service active with zero restarts,
+  listener on `127.0.0.1:5107` only, loopback and public `/`, `/healthz`,
+  `/api/config` all healthy, and no warning-or-higher journal entries.
+- The deployed `Content-Security-Policy` header now includes
+  `connect-src 'self' https://accounts.spotify.com https://api.spotify.com`,
+  verified on the public origin.
+- One deviation from the runbook's recorded access details: its SSH target
+  named a machine whose host key does not match production. The correct
+  target was established by DNS resolution and `known_hosts` fingerprint
+  comparison before any connection, and the runbook has been corrected
+  outside the repository.
+
+Manual browser validation against a live Spotify account remains conditional
+on explicit user authorization and was not performed; the deterministic tests
+in `web/app_test.js` are the recorded evidence for the paging, empty,
+failure, and selection paths.
