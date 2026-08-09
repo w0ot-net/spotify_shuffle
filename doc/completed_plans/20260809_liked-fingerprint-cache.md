@@ -205,3 +205,20 @@ The pending rate-limit plans (`20260809-01`, `20260809-02`) are
 untouched; request control's in-tab loaded-source reuse composes in front
 of this cache when it lands. Live validation of the warm path against a
 real account remains gated on explicit user direction.
+
+Deployment, completed 2026-08-09 under the standing deployment direction
+through the private runbook:
+
+- Release revision `349a20792d9b311782dfee1cf4df7c26a2320a1d` (the plan
+  record commit, whose tree contains implementation commit `16dc211`);
+  embedded `vcs.revision` matches and `vcs.modified` is false. Binary
+  SHA-256
+  `4f768baafdbb309d58095e4fd198b7b2d32e3b0ff4725b8feaeccdaf91f8df1e`.
+- The production checkout fast-forwarded cleanly and the full Go and
+  JavaScript suites passed on the host (84 of 84 browser tests via direct
+  `node` execution per the host's recorded `node --test` limitation).
+- The previous release `db47a40...` was retained and `current` switched
+  atomically. After restart: service active with zero restarts, listener
+  on `127.0.0.1:5107` only, loopback `/`, `/api/config`, and `/healthz`
+  healthy, public HTTPS `/`, `/healthz`, and `/pure.js` healthy, and no
+  warning-or-higher journal entries.
