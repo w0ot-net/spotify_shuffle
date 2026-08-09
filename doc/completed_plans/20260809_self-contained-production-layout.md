@@ -215,3 +215,81 @@ is required for this filesystem-only migration.
   symlinks or duplicate configuration left behind.
 - The active deployment documentation names the final layout, and both Git
   checkouts are clean and synchronized after the documentation commit.
+
+## Execution Notes
+
+Completed on 2026-08-09.
+
+Implemented behavior:
+
+- Consolidated the production checkout, commit-addressed executable release,
+  active-release pointer, and environment file beneath `/opt/trueshuffle`.
+- Created the initial release from deployed revision
+  `eebb98056056ec16840237025c547828970c2464`; its executable checksum remains
+  `3b41896e4b37e7da4a8deaaf1e95db378a6b77a1f089e091e325b1e968d1e91d`,
+  and its embedded clean Git revision matches the release-directory name.
+- Changed `trueshuffle.service` to execute
+  `/opt/trueshuffle/current/trueshuffle` and read
+  `/opt/trueshuffle/config/environment` directly from the main unit.
+- Removed the obsolete systemd drop-in, `/root/tools/trueshuffle`,
+  `/etc/trueshuffle`, and the former top-level executable after successful
+  activation and HTTP validation.
+- Updated the active OAuth hardening plan to use the consolidated checkout and
+  atomic release workflow.
+
+Changed ownership boundaries:
+
+- `/opt/trueshuffle/repo` owns the root-controlled production checkout.
+- `/opt/trueshuffle/releases/<revision>` and `/opt/trueshuffle/current` own
+  executable identity and activation state.
+- `/opt/trueshuffle/config` owns the root-only environment file.
+- `/etc/systemd/system/trueshuffle.service` remains the sole application unit
+  outside the consolidated tree; Apache, Let's Encrypt, and journald retain
+  their existing service-owned locations.
+
+Deviations and corrections:
+
+- Before execution, the plan's original requirement that checkout HEAD always
+  equal the deployed binary revision conflicted with its documentation-only
+  synchronization step. Commit `8365c2f` corrected the invariant: release
+  directory and embedded binary revision must match, while that revision may
+  be an ancestor of a clean checkout advanced by documentation-only commits.
+- The first final journal assertion treated journald's `-- No entries --`
+  display marker as a warning. The migrated service and final layout were
+  already healthy; a quiet, message-only query confirmed zero warning entries,
+  and the known staging directory was then removed. No service rollback or
+  application change was required.
+
+Validation:
+
+- Relocated-checkout `go test ./...`: passed.
+- Binary checksum, `file`, `go version -m`, release-directory revision,
+  relative `current` target, and Git ancestry: verified.
+- Checkout origin, clean status, and synchronization with `origin/main`:
+  verified after commit `3ca4b80`.
+- Config directory mode `0700`, environment mode `0600`, and root ownership:
+  verified without printing the client ID.
+- `systemd-analyze verify`: passed; `trueshuffle.service` is enabled and active
+  with `DynamicUser=yes`, zero automatic restarts, the consolidated
+  `ExecStart` and `EnvironmentFile`, and no drop-ins.
+- Loopback `/`, `/api/config`, and `/healthz`, plus public HTTPS `/` and
+  `/healthz`: passed. The application remains restricted to
+  `127.0.0.1:5107`.
+- `apache2ctl configtest`: passed; HTTP and HTTPS virtual-host hashes remained
+  unchanged.
+- Service journal: zero warning-or-higher messages after activation.
+- Superseded paths, duplicate configuration, and migration/rollback artifacts:
+  absent.
+
+Repository commits:
+
+- `8365c2f` (`Fix production release revision invariant`) corrected the plan
+  before implementation.
+- `3ca4b80` (`Document self-contained deployment workflow`) updated the active
+  deployment documentation after the host migration.
+
+Unresolved blockers and excluded follow-up:
+
+- None. Containers, deployment automation, release-retention policy, Apache,
+  TLS, browser storage, and application behavior remain deliberately outside
+  this completed migration.
