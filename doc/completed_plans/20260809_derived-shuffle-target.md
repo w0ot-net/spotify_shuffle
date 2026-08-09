@@ -166,3 +166,42 @@ direction, per `AGENTS.md`.
 - The purity grep stays clean; unrelated existing tests pass unmodified.
 - The integration and application-model pages and the README describe the
   derived-target behavior and the revised scope rationale.
+
+## Execution Notes
+
+Executed 2026-08-09. Implementation commit `7406d3c`.
+
+Implemented as planned: `derivedPlaylistName`, the exported
+`derivedPlaylistSuffix`, `findPlaylistByName`, and `shuffleResultMessage`
+replaced `createdPlaylistMessage` in `web/pure.js`; `requestSpotify`
+takes an explicit method; `web/app.js` retains `listedPlaylists` (cleared
+on disconnect, appended on create), branches create-or-overwrite on the
+exact-name lookup, sends the first overwrite batch as a full-contents
+`PUT` with the rest appending by `POST`, and renders Created/Updated;
+`shuffledPlaylistName` and the timestamp naming are gone; the button says
+"Shuffle Liked Songs". The overwrite failure message became "Shuffle
+again to rewrite it", honest under PUT self-healing.
+
+Deviations, both bounded:
+
+- `doc/architecture/browser/AUTHORIZATION_MODEL.md` (not in the affected
+  list) carried the retired "held for the in-place shuffle" scope
+  rationale; the sentence was updated with the same revision the
+  integration page received.
+- `main_test.go` needed no change: its markers assert element ids, not
+  the button label the plan conditionally named.
+
+The harness fake models replace-versus-append contents, so an overwrite
+that failed to `PUT` its first batch would fail the total verification --
+the ownership and self-healing invariants are enforced, not just
+observed. New cases cover overwrite-in-place (with a near-miss-named
+decoy listed), create-when-absent, the same-page-load second shuffle
+overwriting the just-created target, and the renamed failure message.
+
+Validation, all passing: `gofmt -l main.go main_test.go` (no output),
+`go test ./...`, `go vet ./...`, `node --check` on both web scripts,
+`node --test web/pure_test.js web/app_test.js` (76 pass, 0 fail),
+`git diff --check`, and the inverted purity grep.
+
+Deployment follows with the companion unified-list plan under the
+standing deployment direction.
