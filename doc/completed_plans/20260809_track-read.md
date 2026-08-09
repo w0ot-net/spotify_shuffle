@@ -186,3 +186,43 @@ cache plan.
 - The purity grep stays clean and every prior test passes unmodified.
 - The integration and application-model pages and the README describe the
   new behavior.
+
+## Execution Notes
+
+Executed 2026-08-09. Implementation commit `ae9c723`.
+
+Implemented as planned: the three-phase pin/fetch/verify read wired from
+`selectPlaylist`, the six-wide pool in `web/app.js`, the `track-status`
+element and Go page marker, `loadedTracks` page state, button disabling
+during the load, and the integration, application-model, and README
+updates. New pure logic in `web/pure.js`: `playlistSnapshotURL`,
+`trackPageURL`, `readPlaylistSnapshot`, `readTrackPage`,
+`remainingTrackOffsets`, `assembleTrackPages`, and `PlaylistChangedError`.
+
+Deviations, all bounded to the plan's outcome:
+
+- Offset-order assembly is a pure function that sorts pages by `offset`
+  before concatenation, making the result independent of completion order
+  by construction. The pure tests prove the ordering directly; the harness
+  proves the pool bound, incremental dispatch, and a successful read from
+  out-of-order responses via the request log and rendered count. This keeps
+  `loadedTracks` private instead of adding a test-only inspection seam to
+  `web/app.js`, per the testing model's layering.
+- `requestPlaylistPage` was renamed `requestSpotify` (message generalized)
+  because the track read reuses the same authorized-GET helper.
+- A late-settling read is dropped when its selection no longer exists:
+  disconnecting mid-read would otherwise re-render private track state
+  after logout cleared the page. One harness case covers it.
+- The prior harness assertion that selecting issues no network request was
+  removed with the behavior it described; selection now loads tracks, which
+  is this plan's outcome. The mark-moving assertions were kept.
+
+Validation, all passing: `gofmt -l main.go main_test.go` (no output),
+`go test ./...`, `go vet ./...`, `node --check` on both web scripts,
+`node --test web/pure_test.js web/app_test.js` (39 pass, 0 fail),
+`git diff --check`, and the inverted purity grep.
+
+Live validation against a real account and deployment were not performed;
+both remain conditional on explicit user direction per `AGENTS.md`. The
+recorded evidence for the paging, ordering, failure, and state-scope
+criteria is the deterministic test suite.
