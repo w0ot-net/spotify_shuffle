@@ -88,6 +88,12 @@ not receive Spotify data.
 the authorization grant in Spotify; reconnecting or revoking the app through
 Spotify remains a separate action.
 
+## Documentation
+
+[`doc/README.md`](doc/README.md) maps all project documentation. The
+[architecture pages](doc/architecture/README.md) describe the current system
+design.
+
 ## Test
 
 Run the Go tests with Go 1.22 or later:

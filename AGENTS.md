@@ -31,6 +31,8 @@ Private production operations:
 Documentation rules:
 
 - Keep `README.md` accurate as the user-facing entry point.
+- `doc/architecture/` is the authority for stable system design; consult the
+  relevant page before design work.
 - Update affected documentation alongside code when commands, configuration,
   behavior, or architecture change.
 - Distinguish clearly between current behavior, planned work, and historical

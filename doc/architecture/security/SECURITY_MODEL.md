@@ -1,0 +1,54 @@
+# Security model
+
+*Revised: 2026-08-09*
+
+This page owns the rules that confine Spotify data to intended origins: the
+Content Security Policy the service sets and the coding rules the browser
+app obeys. Return to the [architecture index](../README.md).
+
+The threat model is concrete: the browser holds long-lived Spotify tokens,
+so the authenticated origin must run only repository-owned JavaScript and
+send Spotify data only to Spotify.
+
+## Response headers
+
+The page and both scripts are served with:
+
+- `Content-Security-Policy` (below);
+- `Referrer-Policy: no-referrer`, so the app URL never leaks to Spotify or
+  anywhere else;
+- `X-Content-Type-Options: nosniff`.
+
+## The CSP, directive by directive
+
+```text
+default-src 'none'            nothing loads unless allowed below
+script-src 'self'             only first-party scripts; no inline, no eval
+connect-src 'self'            /api/config
+  https://accounts.spotify.com    token exchange and refresh (the authorize
+                                  step is a navigation, not a fetch)
+  https://api.spotify.com         Web API reads
+base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'
+```
+
+`default-src 'none'` means the allowlist is exhaustive: there is currently
+no permitted stylesheet, image, font, or frame source. Adding any such asset
+requires its own directive, deliberately. Third-party scripts -- analytics,
+advertising, anything -- must never run on this origin; a page that wants
+them needs a separate origin without Spotify data.
+
+## Rules the app code obeys
+
+- **Bearer tokens stay on the API origin.** The playlist paging cursor
+  comes from a Spotify response body, so it is not trusted: `app.js` follows
+  it only when the pure cursor check proves it targets the playlists
+  endpoint. The CSP `connect-src` is the backstop; the guard fails first and
+  cleanly.
+- **Third-party text never becomes markup.** Playlist names are
+  attacker-influenced strings. List entries are built with `createElement`
+  and `textContent`; `innerHTML` is never assigned.
+- **No inline script, ever.** The page wires all behavior from the two
+  served scripts, keeping `script-src 'self'` honest.
+
+The [testing model](../testing/TESTING_MODEL.md) requires that removing a
+security guard makes a test fail; the cursor guard is the standing example.
