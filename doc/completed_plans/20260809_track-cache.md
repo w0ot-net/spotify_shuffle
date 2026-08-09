@@ -185,3 +185,37 @@ plausibly as one release with the track-read plan.
 - The data-model page exists and is linked; the integration,
   application-model, and authorization pages and the README describe the
   behavior.
+
+## Execution Notes
+
+Executed 2026-08-09, immediately after `20260809_track-read.md`.
+Implementation commit `767d6c2`.
+
+Implemented as planned: the pure listing reader retains the snapshot as
+`snapshotId` on playlist objects (the stored record keeps the API's
+`snapshot_id` name); `validTrackCacheRecord` and the multiset
+`countTrackChanges` landed in `web/pure.js` with direct tests;
+`web/app.js` gained the promise wrappers over database `trueshuffle`
+(version 1, store `playlists`), the cache-first `selectPlaylist` flow, the
+difference rendering, and cache deletion on disconnect. The harness's
+`FakeIndexedDB` fakes exactly open-with-upgrade, get, put, and database
+delete, delivering callbacks on deferred microtasks. The data-model page
+was added and linked from the architecture index reading order and the
+documentation map; the integration, application-model, and authorization
+pages and the README were updated.
+
+Deviations: none material. The mid-read disconnect guard introduced by the
+track-read execution also gates the cache write, so a read that outlives a
+disconnect stores nothing.
+
+Validation, all passing: `node --check` on both web scripts,
+`node --test web/pure_test.js web/app_test.js` (47 pass, 0 fail, including
+the zero-request cache hit proven by the harness request log),
+`git diff --check`, the inverted purity grep (unchanged: `indexedDB` stays
+out of the list because `web/pure.js` gained no storage code), and the
+architecture link-integrity loop over every relative Markdown target. No
+Go files changed, so no Go validation was run.
+
+Live validation -- mutating a real playlist and confirming the reported
+counts -- and deployment were not performed; both remain conditional on
+explicit user direction per `AGENTS.md`.
