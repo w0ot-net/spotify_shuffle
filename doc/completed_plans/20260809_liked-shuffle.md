@@ -173,3 +173,18 @@ empty-library gating.
 Live confirmation -- reconnect, load a real library, create a shuffled
 playlist, and open it in Spotify -- follows the deployment recorded
 below.
+
+Deployment, completed 2026-08-09 under the standing deployment direction
+and the private operations runbook: shipped as release
+`87f2622864d39d3c19f69b93270c80cf8b30c358` together with the liked-read
+plan. Embedded `vcs.revision` matches and `vcs.modified` is false; binary
+SHA-256
+`c62cc4fd5744978b8b5f94cd7886a018f722e33b1b3d465a0da86d9b09b78860`. The
+full Go and JavaScript suites passed on the host (70 of 70 browser tests
+via direct `node` execution). The previous release `96808e1...` was
+retained and `current` switched atomically; after restart the service is
+active with zero restarts, loopback and public health are green, the
+`liked-shuffle` element and library scope are served on the public
+origin, and no warning-or-higher journal entries appeared. The first live
+run against a real account (reconnect, load, create) is the user's next
+action.

@@ -163,6 +163,6 @@ Validation, all passing: `gofmt -l main.go main_test.go` (no output),
 `node --test web/pure_test.js web/app_test.js` (57 pass, 0 fail),
 `git diff --check`, and the inverted purity grep.
 
-Deployment and live confirmation follow with the companion
-`20260809_liked-shuffle.md` execution under the standing deployment
-direction.
+Deployment, completed 2026-08-09: shipped as release
+`87f2622864d39d3c19f69b93270c80cf8b30c358` together with the companion
+`20260809_liked-shuffle.md`, whose record holds the deployment details.
