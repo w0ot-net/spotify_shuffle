@@ -259,3 +259,44 @@ performed under the private operations runbook:
 - The README names both browser test files in a single runnable command.
 - Adding value logic in the next increment requires a new case in
   `web/pure_test.js` and no change to the harness.
+
+## Execution Status
+
+Implementation landed in `07eec92` (`Extract browser pure logic module`).
+Steps 1 through 7 are complete and pushed; the gated deployment in step 8 is
+not.
+
+Implemented as planned, with two bounded corrections:
+
+- `web/pure.js` wraps its definitions in an IIFE assigned to the single
+  top-level `var TrueShuffle`, so helper names do not become additional
+  globals. The one-global invariant is unchanged; `web/pure_test.js` asserts
+  the context contains exactly `TrueShuffle`.
+- `web/pure_test.js` normalizes vm-realm objects through JSON before strict
+  deep equality, because objects built in the vm realm carry that realm's
+  prototypes, which `assert.deepEqual` (strict) rejects. Content comparison
+  remains strict.
+
+Local validation, all passing:
+
+- `gofmt -l main.go main_test.go`: no output.
+- `go test ./...`, `go vet ./...`: ok, including the script-order position
+  assertion, the `/pure.js` route, content type, headers, and exact-route
+  cases.
+- `node --check` on all four browser files: ok.
+- `node --test web/pure_test.js web/app_test.js`: 25 passed, 0 failed.
+- `! grep -nE 'document|window|fetch|localStorage|sessionStorage|crypto|location|history' web/pure.js`:
+  no match, exit 0.
+- Guard-deletion check: removing the cursor guard in a scratch copy made the
+  strengthened cursor test fail (15 passed, 1 failed), proving the assertion
+  is load-bearing; the scratch copy was discarded.
+- Headless Chromium against a local server with a test client ID: the page
+  reached the disconnected state with the connect control rendered and no CSP
+  violation or script error, proving both scripts load in order and the
+  global resolves.
+
+Remaining before this plan can be completed:
+
+- The gated deployment and its conditional validation, shared with
+  `20260809-playlist-listing.md`; both changes ship in one release when the
+  user authorizes it.
