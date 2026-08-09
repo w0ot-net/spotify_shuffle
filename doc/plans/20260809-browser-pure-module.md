@@ -20,10 +20,16 @@ is that scaffolding.
 
 The cost is now concrete:
 
-- Proving that a paging cursor pointing off `api.spotify.com` is rejected -- a
-  string prefix check -- requires booting a fake browser, seeding a fake
-  `localStorage` with a token record, faking `fetch`, and running `initialize()`
-  to completion.
+- Exercising one branch of a string prefix check -- the paging cursor guard --
+  requires booting a fake browser, seeding a fake `localStorage` with a token
+  record, faking `fetch`, and running `initialize()` to completion. Cheap cases
+  are therefore not written, and the guard has exactly one.
+- Worse, the weight of that scaffolding hides dead assertions. The existing
+  cursor test still passes with the guard deleted, because the fake `fetch`
+  then rejects the off-origin URL itself and produces the same message and the
+  same hidden list. This was confirmed by removing the guard in a scratch copy:
+  16 of 16 tests still passed. A test that expensive should not be able to
+  assert nothing without it being obvious.
 - `FakeElement` is drifting toward a hand-written DOM. Adding the playlist list
   required teaching it `appendChild`, `setAttribute`, `getAttribute`, and that
   assigning `textContent` clears children. Each of those encodes a DOM
@@ -45,15 +51,17 @@ In scope:
 - Add `web/pure.js`, a classic script defining a single `TrueShuffle` global
   containing the browser-independent value logic and error types.
 - Move these existing definitions from `web/app.js` unchanged in behavior:
-  `TokenRejectedError`, `AuthorizationRevokedError`, `encodeBase64URL`,
-  `validTokenRecord`, `playlistLabel`, the playlist-page reader, the paging
-  cursor check, and the `playlistsEndpoint` constant.
+  `TokenRejectedError`, `AuthorizationRevokedError`, `validTokenRecord`,
+  `playlistLabel`, the playlist-page reader, the paging cursor check, and the
+  `playlistsEndpoint` constant.
 - Split `storeTokenResponse` into a pure record builder that takes the current
   time as an argument and the `localStorage` write that stays in `web/app.js`.
 - Serve `/pure.js` and load it before `/app.js`.
 - Add `web/pure_test.js` covering the moved logic directly, with no fakes.
 - Load `web/pure.js` into the existing `vm` context in `web/app_test.js`, and
-  delete the one integration test made redundant by direct coverage.
+  strengthen the cursor integration test so that removing the guard fails it.
+- Assert that the served page loads `/pure.js` before `/app.js`, and that
+  `/pure.js` is an exact route.
 - Update the documented test command.
 
 Out of scope:
@@ -65,16 +73,16 @@ Out of scope:
   number of times. It is a real fragility and it will not survive the shuffle
   increment's sequential batch writes, but it is independently fixable and
   unrelated to where the logic lives.
-- Converting the browser app to ES modules. `import` cannot appear inside the
-  IIFE, so it would force removing the wrapper and reindenting the whole file,
-  and `vm.runInContext` cannot execute module syntax -- the harness would need
-  `vm.SourceTextModule` with a linker callback behind
+- Converting the browser app to ES modules. A top-level `import` could sit
+  above the existing IIFE, so the wrapper would not have to change. The real
+  cost is that `vm.runInContext` cannot execute module syntax, so the harness
+  would need `vm.SourceTextModule` with a linker callback behind
   `--experimental-vm-modules`. That adds harness complexity to a change whose
   purpose is to remove it.
 - jsdom, any npm dependency, a package manifest, or a bundler.
 - Reducing the remaining integration tests. What survives proves wiring the
   pure tests cannot: storage writes, URL cleanup, fetch orchestration, and DOM
-  state transitions.
+  state transitions. No integration test is deleted by this plan.
 - The shuffle logic this refactor is meant to prepare for.
 
 ## Design
@@ -85,6 +93,29 @@ and lands on the context object under `vm.runInNewContext` identically. The
 file's governing rule is that it may not reference `document`, `window`,
 `fetch`, `localStorage`, `sessionStorage`, `crypto`, `location`, or `history`.
 That rule is greppable, so it is checked rather than asserted.
+
+**`encodeBase64URL` stays in `web/app.js`.** It calls `window.btoa`, which the
+purity rule forbids. Dropping the `window.` qualifier would work under Node
+itself, where `btoa` is a global, but not inside a bare `vm` context, where it
+is undefined -- the pure tests would have to inject a platform global, which is
+the fake-building this plan exists to stop. It is used only by
+`randomBase64URL` and `codeChallenge`, both of which need Web Crypto anyway, so
+it belongs beside the PKCE adapter.
+
+**A pure test proves a function; only the harness proves the call site.**
+Extraction moves value logic out; it does not move the obligation to prove that
+production code invokes that logic at the right moment. The paging cursor check
+is the case that matters, because the thing being prevented is sending a bearer
+token off-origin. Today's integration test does not carry that weight: with the
+guard deleted the fake `fetch` rejects the unrecognized URL itself, producing
+the same failure message and the same hidden list, so the test passes either
+way. It must assert that no request was ever issued to the off-origin URL,
+which fails when the guard is gone. It is kept and strengthened, not replaced.
+
+**Script order is an invariant, not a convention.** `app.js` reads
+`TrueShuffle` while loading, so a reversed pair of tags breaks the page at
+startup even though both tags are still present. `main_test.go` must compare
+the positions of the two tags in the served page, not merely their presence.
 
 **Chosen over ES modules deliberately.** Two classic scripts with `defer`
 execute in document order, so `TrueShuffle` is defined before `app.js` runs.
@@ -129,12 +160,15 @@ The route test and a deployed page load cover that.
   acceptance and rejection, token-record validation, expiry arithmetic, and
   refresh-token fallback when the response omits one.
 - `web/app_test.js`: run `web/pure.js` in the vm context before `web/app.js`;
-  delete the cursor-rejection integration test now covered directly.
+  strengthen the cursor-rejection test to assert that no request reached the
+  off-origin URL.
 - `web/index.html`: load `/pure.js` with `defer` before `/app.js`.
 - `main.go`: embed `web/pure.js` and serve it at `GET /pure.js` with the
   JavaScript content type and the existing browser security headers.
-- `main_test.go`: assert the `/pure.js` route, content type, and headers, and
-  update the `TestAppPage` script markers.
+- `main_test.go`: assert the `/pure.js` route, content type, and headers; add
+  `/pure.js/` to the exact-route cases; and replace the independent
+  script-marker checks with a position comparison proving `/pure.js` is loaded
+  before `/app.js`.
 - `README.md`: the Test section names one browser test file and must name both.
 
 No change is expected in the CSP constant, the OAuth scopes, the token storage
@@ -147,8 +181,9 @@ model, or any host configuration.
 3. Embed and route `/pure.js` in `main.go`, add the script tag to
    `web/index.html`, and update `main_test.go` for the route and markers.
 4. Add `web/pure_test.js`.
-5. Load `web/pure.js` into the `web/app_test.js` context and delete the
-   redundant cursor test.
+5. Load `web/pure.js` into the `web/app_test.js` context and strengthen the
+   cursor test. Verify it by deleting the guard in a scratch copy and
+   confirming the test fails, then restoring it.
 6. Update the README test command.
 7. Run validation and confirm the surviving integration tests pass unmodified.
 8. Commit and push, then deploy through the existing release workflow. The
@@ -169,24 +204,34 @@ node --test web/pure_test.js web/app_test.js
 git diff --check
 ```
 
-Confirm the purity invariant directly:
+Confirm the purity invariant as an assertion that fails loudly. `grep` exits
+non-zero when it finds nothing, so the no-match case must be inverted rather
+than read as success:
 
 ```sh
-grep -nE 'document|window|fetch|localStorage|sessionStorage|crypto|location|history' web/pure.js
+! grep -nE 'document|window|fetch|localStorage|sessionStorage|crypto|location|history' web/pure.js
 ```
 
-That command must produce no output.
+Confirm the security wiring is actually load-bearing: delete the cursor guard
+in a scratch copy of `web/`, run `node --test` against it, and require the
+cursor test to fail. A guard whose removal keeps the suite green is not tested.
 
-The strongest evidence of no behavior change is that every surviving test in
-`web/app_test.js` passes with its assertions unmodified. Any edit to an
-existing assertion means behavior moved and must be justified, not absorbed.
+The strongest evidence of no behavior change is that every test in
+`web/app_test.js` other than the strengthened cursor case passes with its
+assertions unmodified. Any other edited assertion means behavior moved and must
+be justified, not absorbed.
 
-Manual browser validation:
+Manual browser validation, against the local server with no Spotify account
+connected:
 
 - Load the page and confirm both scripts load and the console reports no CSP
   violation and no missing-global error.
-- Confirm playlist listing and selection still work, and that disconnect still
-  clears the list.
+
+Validation requiring a live Spotify account -- confirming that listing,
+selection, and disconnect still behave -- is performed only with explicit user
+authorization, per `AGENTS.md`. Absent that, the deterministic tests in
+`web/app_test.js` are the required evidence for those paths, and this plan does
+not treat live confirmation as a precondition for completion.
 
 Deployment validation:
 
@@ -200,10 +245,13 @@ Deployment validation:
   fetch, or window.
 - `web/app.js` contains no remaining copy of the moved definitions.
 - `grep` finds no browser global in `web/pure.js`.
-- Every surviving `web/app_test.js` test passes with unmodified assertions,
-  and the Go suite passes.
+- Deleting the paging cursor guard makes the cursor integration test fail.
+- Every `web/app_test.js` test other than the strengthened cursor case passes
+  with unmodified assertions, and the Go suite passes.
 - `/pure.js` is served with the JavaScript content type and the existing
-  security headers, and the page loads with no missing-global error.
+  security headers, is an exact route, and is proven by test to load before
+  `/app.js`.
+- The page loads with no missing-global error.
 - The README names both browser test files in a single runnable command.
 - Adding value logic in the next increment requires a new case in
   `web/pure_test.js` and no change to the harness.
