@@ -159,3 +159,40 @@ the reported duration -- only with explicit user direction, per
   and all prior tests pass unmodified except the read-path message
   assertions the scope names.
 - The application-model page and the README describe the behavior.
+
+## Execution Notes
+
+Executed 2026-08-09. Implementation commit `e5fbff1`.
+
+Implemented as planned: `loadedTracksMessage(count, elapsedMilliseconds,
+changes)` in `web/pure.js` replaced `trackCountMessage` and the inline
+suffix in `web/app.js`; the `track-progress` element landed beside the
+track status line with its Go page marker; the progress callback threads
+from `loadTracks` through `readPlaylistTracks` into the pool, ticking with
+summed raw item counts against the page-0 total; the bar shows only for a
+non-zero total, updates silently outside the `aria-live` text, and hides
+in the same `finally` that re-enables the playlist buttons. Elapsed time
+is measured with `Date.now()` around the read path only.
+
+Deviations, both bounded:
+
+- `loadedTracksMessage` clamps a negative elapsed value to zero so a
+  non-monotonic clock cannot render a negative duration; one direct test
+  covers it.
+- The harness proves "a cache hit never shows the bar" with a dedicated
+  seeded case asserting the element's `max` was never assigned, since the
+  round-trip case cannot distinguish never-shown from shown-then-hidden
+  after its first (network) read set `max`.
+
+The read-path message assertions named in the scope became patterns
+(`/^Loaded N tracks in \d+\.\ds\.$/` and the suffixed form); cache-hit
+assertions kept the exact plain form.
+
+Validation, all passing: `gofmt -l main.go main_test.go` (no output),
+`go test ./...`, `go vet ./...`, `node --check` on both web scripts,
+`node --test web/pure_test.js web/app_test.js` (49 pass, 0 fail),
+`git diff --check`, and the inverted purity grep.
+
+Live confirmation on a real large playlist -- watching the bar and
+recording the reported duration as rate-limit evidence -- remains
+conditional on explicit user direction, as does deployment.
