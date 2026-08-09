@@ -431,3 +431,13 @@ test("createdPlaylistMessage names the playlist with count and duration", () => 
     "Created \"X\" with 2 tracks in 0.0s."
   );
 });
+
+test("SpotifyRequestError carries the response status", () => {
+  const error = new TrueShuffle.SpotifyRequestError(429);
+  assert.equal(error.status, 429);
+  assert.equal(error.message, "Spotify request failed with status 429");
+  assert.equal(
+    error instanceof TrueShuffle.PlaylistChangedError, false,
+    "status failures must not render as changed-while-loading"
+  );
+});

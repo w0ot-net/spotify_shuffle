@@ -863,7 +863,7 @@ test("a failed track read leaves the listing and token intact", async () => {
 
   assert.equal(
     harness.trackStatusElement.textContent,
-    "Tracks could not be loaded. Select the playlist again to retry."
+    "Tracks could not be loaded (Spotify returned 500). Select the playlist again to retry."
   );
   assert.equal(localStorage.getItem(tokenStorageKey), rawToken);
   assert.equal(harness.playlistsElement.hidden, false);
@@ -1053,7 +1053,7 @@ test("a failed re-read preserves the previous cache record", async () => {
 
   assert.equal(
     harness.trackStatusElement.textContent,
-    "Tracks could not be loaded. Select the playlist again to retry."
+    "Tracks could not be loaded (Spotify returned 500). Select the playlist again to retry."
   );
   assert.deepEqual(plain(indexedDB.record("trueshuffle", "playlists", "kept")), {
     snapshot_id: "snap-old",
@@ -1214,7 +1214,7 @@ test("a failed Liked Songs read leaves playlists and token intact", async () => 
   harness.likedLoadButton.click();
   await settle();
 
-  assert.equal(harness.likedStatusElement.textContent, "Liked Songs could not be loaded. Try again.");
+  assert.equal(harness.likedStatusElement.textContent, "Liked Songs could not be loaded (Spotify returned 500). Try again.");
   assert.equal(localStorage.getItem(tokenStorageKey), rawToken);
   assert.equal(harness.playlistsElement.hidden, false);
   assert.equal(harness.statusElement.textContent, "Spotify is connected in this browser.");
@@ -1366,7 +1366,7 @@ test("a failed append names the possibly partial playlist", async () => {
 
   assert.match(
     harness.likedStatusElement.textContent,
-    /^"Liked Shuffle .+" may be incomplete\. Delete it in Spotify or shuffle again\.$/
+    /^"Liked Shuffle .+" may be incomplete \(Spotify returned 500\)\. Delete it in Spotify or shuffle again\.$/
   );
   assert.equal(harness.trackProgressElement.hidden, true);
 });

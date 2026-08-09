@@ -273,9 +273,17 @@
     }
     const response = await window.fetch(url, options);
     if (!response.ok) {
-      throw new Error("Spotify request failed with status " + response.status);
+      throw new TrueShuffle.SpotifyRequestError(response.status);
     }
     return response.json();
+  }
+
+  // Fail-fast stays, but blind messages cost live diagnosis time twice;
+  // name the status when Spotify supplied one.
+  function failureDetail(error) {
+    return error instanceof TrueShuffle.SpotifyRequestError
+      ? " (Spotify returned " + error.status + ")"
+      : "";
   }
 
   async function fetchPlaylists(token) {
@@ -490,7 +498,8 @@
       }
       renderTrackStatus(error instanceof TrueShuffle.PlaylistChangedError
         ? "This playlist changed while loading. Select it again."
-        : "Tracks could not be loaded. Select the playlist again to retry.");
+        : "Tracks could not be loaded" + failureDetail(error) +
+          ". Select the playlist again to retry.");
     } finally {
       trackProgressElement.hidden = true;
       setActionButtonsDisabled(false);
@@ -573,7 +582,7 @@
       likedTracks = null;
       renderLikedStatus(error instanceof TrueShuffle.PlaylistChangedError
         ? "Liked Songs changed while loading. Load them again."
-        : "Liked Songs could not be loaded. Try again.");
+        : "Liked Songs could not be loaded" + failureDetail(error) + ". Try again.");
     } finally {
       trackProgressElement.hidden = true;
       setActionButtonsDisabled(false);
@@ -637,13 +646,14 @@
       renderLikedStatus(TrueShuffle.createdPlaylistMessage(
         created.name, shuffled.length, Date.now() - writeStart
       ));
-    } catch (_) {
+    } catch (error) {
       if (likedToken === null) {
         return;
       }
       renderLikedStatus(created === null
-        ? "The shuffled playlist could not be created. Try again."
-        : "\"" + created.name + "\" may be incomplete. Delete it in Spotify or shuffle again.");
+        ? "The shuffled playlist could not be created" + failureDetail(error) + ". Try again."
+        : "\"" + created.name + "\" may be incomplete" + failureDetail(error) +
+          ". Delete it in Spotify or shuffle again.");
     } finally {
       trackProgressElement.hidden = true;
       setActionButtonsDisabled(false);

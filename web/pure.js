@@ -22,6 +22,14 @@ var TrueShuffle = (function () {
   class TokenRejectedError extends Error {}
   class AuthorizationRevokedError extends TokenRejectedError {}
   class PlaylistChangedError extends Error {}
+  // A non-OK Web API response; carries the status so failure messages can
+  // name what Spotify actually returned.
+  class SpotifyRequestError extends Error {
+    constructor(status) {
+      super("Spotify request failed with status " + status);
+      this.status = status;
+    }
+  }
 
   function validTokenRecord(value) {
     return value !== null &&
@@ -314,6 +322,7 @@ var TrueShuffle = (function () {
     readUserId: readUserId,
     remainingTrackOffsets: remainingTrackOffsets,
     shuffledURIs: shuffledURIs,
+    SpotifyRequestError: SpotifyRequestError,
     trackPageURL: trackPageURL,
     uriBatches: uriBatches,
     validPlaylistCursor: validPlaylistCursor,
