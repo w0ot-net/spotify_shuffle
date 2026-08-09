@@ -1,5 +1,7 @@
 # Plan: Browser Pure-Logic Module
 
+*Distilled: 2026-08-09*
+
 ## Summary
 
 Move the browser code that transforms and validates values -- with no DOM,
