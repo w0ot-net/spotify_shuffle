@@ -10,15 +10,18 @@ produces which page state belongs to the
 
 ## Two scripts, one global
 
-`web/index.html` is a fixed document -- a status line, connect and disconnect
-buttons, a playlist status line, and a playlist list -- that loads two
-classic scripts with `defer`, in order:
+`web/index.html` is a fixed document -- a status line, connect and
+disconnect buttons, a playlist status line, a track status line, a
+progress element, and the source list -- that loads two classic scripts
+with `defer`, in order:
 
 1. `web/pure.js` defines a single `TrueShuffle` global containing the
    browser-independent value logic and error types: token-record building and
    validation, playlist- and track-page parsing, track URL construction and
    offset computation, track-page assembly, cache-record validation, the
-   multiset track difference, label formatting, and the paging-cursor check.
+   multiset track difference, the Fisher-Yates shuffle, derived-name
+   derivation and lookup, the display filter, label and message formatting,
+   and the paging-cursor check.
 2. `web/app.js` is the platform adapter. It reads `TrueShuffle` while
    loading, owns every `document`, `fetch`, storage, crypto, and history
    interaction, and wires the value logic to the page.
@@ -51,48 +54,54 @@ The page-state vocabulary the lifecycle renders:
 
 - connection states: working, disconnected, connected, and error (with or
   without a reconnect button);
-- playlist states: loading, listed, empty account, and failure, each a
-  distinct rendered message;
-- track states: loading (with a determinate progress element during a
-  network read), loaded count with the read's elapsed time, and failure,
-  rendered in their own status line;
-- liked states: reconnect required (token predates `user-library-read`),
-  loadable, loading, loaded count with elapsed time, and failure, in the
-  Liked Songs section's own status line;
-- shuffle states: writing (bar tracks written batches), created or
-  updated (naming the derived target with count and elapsed time),
-  incomplete (naming the target with a rerun offered), and cap exceeded.
+- list states: loading, listed (always at least the Liked Songs row), and
+  failure;
+- chain states, all in the track status line: loading (with the
+  determinate progress element during a network read), loaded count with
+  the read's elapsed time, no-tracks, cap exceeded, writing (the bar
+  tracks written batches), created or updated (naming the derived target
+  with count, elapsed time, and the membership difference when a cached
+  record was replaced), incomplete (naming the target with a rerun
+  offered), and failure.
 
-Selecting a playlist records `{id, name}` in module-scope page state, marks
-the chosen button with `aria-pressed`, and loads the playlist's ordered
-track URIs cache-first: a cached record whose snapshot matches the
-listing's renders with zero track requests, and otherwise the read protocol
-the [Spotify integration](../integration/SPOTIFY_INTEGRATION.md) page owns
-runs and its verified result is stored (see the
-[data model](DATA_MODEL.md)). When a re-read replaces a cached record, the
-membership difference renders as added and removed counts. A network read
-shows a determinate `<progress>` element once page 0 reveals the total:
-its maximum is the server-reported total, each completed page advances it
-by that page's raw item count, and it hides when the load settles either
-way. The numbers stay out of the `aria-live` status text so screen readers
-are not spammed per page, and the loaded message reports the elapsed
-seconds; a cache hit renders instantly with neither bar nor duration. One operation runs at a
-time: every action button -- the playlist buttons and the Liked Songs
-section's -- is disabled until the active load settles, which is also what
-lets the single progress element serve every operation. A loaded Liked
-Songs library lands in module-scope `likedTracks` (`{uris}`); it is page
-state only and is never cached, because the library has no snapshot to
-validate against. A successful load reveals the shuffle action, which
-Fisher-Yates-shuffles the loaded URIs with crypto-backed unbiased
-randomness (the pure shuffle takes the randomness as an argument) and
-writes them to the source's one derived ` TrueShuffle` playlist --
-created when absent, replaced in full when present -- through the write
-flow the [Spotify integration](../integration/SPOTIFY_INTEGRATION.md)
-page owns. The fetched listing is retained in module scope as the write
-flow's target lookup, and a created target joins it so a repeat shuffle
-in the same page load overwrites instead of duplicating. Either path lands the list in module-scope
-`loadedTracks` -- `{id, snapshotId, uris}` -- the attachment point for
-shuffle generation (planned). A failed read clears `loadedTracks`, renders
-the failure in the track status line, and leaves the listing, selection,
-and stored token untouched; a late result from a read that outlives its
-page state -- disconnecting mid-read -- is dropped.
+## The one gesture
+
+The page is one list: Liked Songs first, then the account's playlists with
+the app's own derived ` TrueShuffle` playlists hidden by a render-time
+filter -- display filtering only, because the retained listing must keep
+derived entries for the write flow's target lookup. Liked Songs is a
+pseudo-playlist entering the shared selection flow with a sentinel id (a
+hyphen cannot appear in a Spotify id, so it can never collide), not a
+parallel code path.
+
+Clicking a row records the selection, marks the button with
+`aria-pressed`, and runs one chain: load, shuffle, write. Playlist rows
+load cache-first -- a cached record whose snapshot matches the listing's
+reaches the write with zero track requests, and otherwise the read
+protocol the [Spotify integration](../integration/SPOTIFY_INTEGRATION.md)
+page owns runs and its verified result is stored (see the
+[data model](DATA_MODEL.md)). The Liked Songs row loads through the
+library read and skips the cache, since the library has no snapshot to
+validate a record against. A loaded source with zero tracks reports that
+and writes nothing; otherwise the chain Fisher-Yates-shuffles the URIs
+with crypto-backed unbiased randomness (the pure shuffle takes the
+randomness as an argument) and writes the source's derived target --
+created when absent, replaced in full when present. The fetched listing is
+retained in module scope as the target lookup, and a created target joins
+it so a repeat click overwrites instead of duplicating.
+
+A token predating `user-library-read` renders the Liked Songs row as the
+reconnect action -- the ordinary authorization flow -- while playlist rows
+keep working (see the [authorization model](AUTHORIZATION_MODEL.md)).
+
+One operation runs at a time: every row is disabled until the active
+chain settles, which is what lets the single progress element serve the
+read and write phases in turn. The bar is determinate from the moment it
+appears -- its maximum is the server-reported total (or the write's URI
+count) and its numbers stay out of the `aria-live` status text so screen
+readers are not spammed per step. The loaded list sits in module-scope
+`loadedTracks` (`{id, snapshotId, uris}`). A failed load or write renders
+in the track status line and leaves the listing, the cache, the selection,
+and the stored token untouched; a late result from a chain that outlives
+its selection -- disconnecting mid-chain -- is dropped and issues no
+further writes.

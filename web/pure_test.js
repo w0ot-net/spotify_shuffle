@@ -465,3 +465,34 @@ test("SpotifyRequestError carries the response status and path", () => {
     "status failures must not render as changed-while-loading"
   );
 });
+
+test("displayedPlaylists hides derived names and keeps near misses", () => {
+  const playlists = [
+    {id: "a", name: "Morning"},
+    {id: "b", name: "Morning TrueShuffle"},
+    {id: "c", name: "TrueShuffle"},
+    {id: "d", name: "Morning TrueShuffle Backup"},
+    {id: "e", name: " TrueShuffle"}
+  ];
+  assert.deepEqual(
+    plain(TrueShuffle.displayedPlaylists(playlists)).map((playlist) => playlist.id),
+    ["a", "c", "d"],
+    "only names ending with the derived suffix are hidden"
+  );
+  assert.equal(playlists.length, 5, "the retained listing itself is untouched");
+});
+
+test("likedRowLabel names the reconnect gate", () => {
+  assert.equal(TrueShuffle.likedRowLabel(true), "Liked Songs");
+  assert.equal(TrueShuffle.likedRowLabel(false), "Liked Songs (reconnect Spotify to enable)");
+});
+
+test("emptySourceMessage names the source", () => {
+  assert.equal(TrueShuffle.emptySourceMessage("Liked Songs"), "\"Liked Songs\" has no tracks to shuffle.");
+});
+
+test("trackChangesSuffix is empty for no change and names the counts otherwise", () => {
+  assert.equal(TrueShuffle.trackChangesSuffix(null), "");
+  assert.equal(TrueShuffle.trackChangesSuffix({added: 0, removed: 0}), "");
+  assert.equal(TrueShuffle.trackChangesSuffix({added: 2, removed: 1}), " 2 added, 1 removed since last read.");
+});

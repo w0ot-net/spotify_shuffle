@@ -293,6 +293,61 @@ function deferred() {
   return {promise: promise, resolve: resolve};
 }
 
+// Serves the whole write path for any number of derived targets: profile,
+// creation (assigning target-1, target-2, ...), batch writes with
+// replace-versus-append contents modeling, and totals. Pre-register
+// {id, name, contents} rows via backend.targets for derived playlists that
+// already exist. handle() returns null for URLs it does not own.
+function makeWriteBackend() {
+  const backend = {targets: [], createBodies: [], writes: [], nextId: 1};
+  backend.find = (id) => backend.targets.find((target) => target.id === id) || null;
+  backend.writesFor = (id) => backend.writes.filter((write) => write.id === id);
+  backend.handle = (url, requestOptions) => {
+    if (url === "https://api.spotify.com/v1/me") {
+      return jsonResponse(200, {id: "user-1"});
+    }
+    if (url === "https://api.spotify.com/v1/users/user-1/playlists") {
+      assert.equal(requestOptions.method, "POST");
+      const body = JSON.parse(requestOptions.body);
+      backend.createBodies.push(body);
+      const target = {id: "target-" + backend.nextId, name: body.name, contents: null};
+      backend.nextId += 1;
+      backend.targets.push(target);
+      return jsonResponse(200, {id: target.id, name: target.name});
+    }
+    const write = url.match(/^https:\/\/api\.spotify\.com\/v1\/playlists\/([^/?]+)\/tracks$/);
+    if (write !== null && backend.find(write[1]) !== null) {
+      const target = backend.find(write[1]);
+      const uris = JSON.parse(requestOptions.body).uris;
+      backend.writes.push({id: target.id, method: requestOptions.method, uris: uris});
+      target.contents = requestOptions.method === "PUT"
+        ? uris.slice()
+        : (target.contents || []).concat(uris);
+      return jsonResponse(201, {snapshot_id: "write-snap"});
+    }
+    const total = url.match(/^https:\/\/api\.spotify\.com\/v1\/playlists\/([^/?]+)\?fields=tracks\.total$/);
+    if (total !== null && backend.find(total[1]) !== null) {
+      return jsonResponse(200, {tracks: {total: (backend.find(total[1]).contents || []).length}});
+    }
+    return null;
+  };
+  return backend;
+}
+
+// Routes write-path URLs to the backend and everything else on the
+// playlists prefix to the source read handler.
+function backendOptions(backend, sourceTrackHandler) {
+  return {
+    meHandler: backend.handle,
+    createPlaylistHandler: backend.handle,
+    trackHandler: (url, requestOptions) =>
+      backend.handle(url, requestOptions) ||
+      (sourceTrackHandler || ((unexpected) => {
+        throw new Error("unexpected source request: " + unexpected);
+      }))(url, requestOptions)
+  };
+}
+
 function createHarness(options) {
   options = options || {};
   const statusElement = new FakeElement(false);
@@ -302,10 +357,6 @@ function createHarness(options) {
   const trackStatusElement = new FakeElement(true);
   const trackProgressElement = new FakeElement(true);
   const playlistsElement = new FakeElement(true);
-  const likedStatusElement = new FakeElement(true);
-  const likedConnectButton = new FakeElement(true);
-  const likedLoadButton = new FakeElement(true);
-  const likedShuffleButton = new FakeElement(true);
   const elements = {
     status: statusElement,
     connect: connectButton,
@@ -313,11 +364,7 @@ function createHarness(options) {
     "playlist-status": playlistStatusElement,
     "track-status": trackStatusElement,
     "track-progress": trackProgressElement,
-    playlists: playlistsElement,
-    "liked-status": likedStatusElement,
-    "liked-connect": likedConnectButton,
-    "liked-load": likedLoadButton,
-    "liked-shuffle": likedShuffleButton
+    playlists: playlistsElement
   };
   const localStorage = options.localStorage || new FakeStorage();
   const sessionStorage = options.sessionStorage || new FakeStorage();
@@ -407,11 +454,7 @@ function createHarness(options) {
     sessionStorage: sessionStorage,
     statusElement: statusElement,
     trackProgressElement: trackProgressElement,
-    trackStatusElement: trackStatusElement,
-    likedStatusElement: likedStatusElement,
-    likedConnectButton: likedConnectButton,
-    likedLoadButton: likedLoadButton,
-    likedShuffleButton: likedShuffleButton
+    trackStatusElement: trackStatusElement
   };
 }
 
@@ -570,10 +613,16 @@ test("playlist listing renders every page in order", async () => {
 
   assert.deepEqual(
     playlistButtons(harness).map((button) => button.textContent),
-    ["Morning (1 track)", "Evening (4212 tracks)", "Late (0 tracks)"]
+    [
+      "Liked Songs (reconnect Spotify to enable)",
+      "Morning (1 track)",
+      "Evening (4212 tracks)",
+      "Late (0 tracks)"
+    ],
+    "Liked Songs leads the list; the scope-less token labels it as the reconnect"
   );
   assert.equal(harness.playlistsElement.hidden, false);
-  assert.equal(harness.playlistStatusElement.textContent, "Select a playlist.");
+  assert.equal(harness.playlistStatusElement.textContent, "Select a playlist to shuffle it.");
   assert.equal(harness.statusElement.textContent, "Spotify is connected in this browser.");
 
   const playlistRequests = harness.requests.filter((request) => request.url.startsWith(playlistsEndpoint));
@@ -581,16 +630,20 @@ test("playlist listing renders every page in order", async () => {
   assert.equal(playlistRequests[0].options.headers.Authorization, "Bearer current-access-token");
 });
 
-test("playlist listing renders an empty account state", async () => {
+test("an account without playlists still lists the Liked Songs row", async () => {
   const harness = createHarness({
-    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
     playlistHandler: () => playlistPage([])
   });
 
   await settle();
 
-  assert.equal(harness.playlistStatusElement.textContent, "This Spotify account has no playlists.");
-  assert.equal(harness.playlistsElement.hidden, true);
+  assert.deepEqual(
+    playlistButtons(harness).map((button) => button.textContent),
+    ["Liked Songs"]
+  );
+  assert.equal(harness.playlistsElement.hidden, false);
+  assert.equal(harness.playlistStatusElement.textContent, "Select a playlist to shuffle it.");
 });
 
 test("a failed playlist listing retains authorization", async () => {
@@ -639,49 +692,55 @@ test("a playlist page cursor off the Spotify API origin is rejected", async () =
   assert.equal(harness.playlistsElement.hidden, true);
 });
 
-// Selection now loads tracks, so the former assertion that selecting issues
-// no request moved with the behavior: each selection reads the playlist.
+// Selection now runs the whole chain: read, shuffle, and write to the
+// derived target; the click lands on index 1 because Liked Songs leads.
 test("selecting a playlist marks it and moves the mark on reselection", async () => {
-  const harness = createHarness({
-    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
+  const backend = makeWriteBackend();
+  const harness = createHarness(Object.assign({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
     playlistHandler: () => playlistPage([
       {id: "first", name: "Morning", tracks: {total: 1}},
       {id: "second", name: "Evening", tracks: {total: 1}}
-    ]),
-    trackHandler: (url) => {
-      const playlistId = url.includes("/playlists/first") ? "first" : "second";
-      return steadyTrackHandler(playlistId, "snap-" + playlistId, 100, ["spotify:track:" + playlistId])(url);
-    }
-  });
+    ])
+  }, backendOptions(backend, (url, requestOptions) => {
+    const playlistId = url.includes("/playlists/first") ? "first" : "second";
+    return steadyTrackHandler(playlistId, "snap-" + playlistId, 100, ["spotify:track:" + playlistId])(url);
+  })));
 
   await settle();
   const buttons = playlistButtons(harness);
 
-  buttons[0].click();
-  await settle();
-  assert.equal(buttons[0].getAttribute("aria-pressed"), "true");
-  assert.equal(harness.playlistStatusElement.textContent, "Selected Morning.");
-  assert.match(harness.trackStatusElement.textContent, /^Loaded 1 track in \d+\.\ds\.$/);
-
   buttons[1].click();
   await settle();
-  assert.equal(buttons[0].getAttribute("aria-pressed"), "false");
   assert.equal(buttons[1].getAttribute("aria-pressed"), "true");
+  assert.equal(harness.playlistStatusElement.textContent, "Selected Morning.");
+  assert.match(harness.trackStatusElement.textContent, /^Created "Morning TrueShuffle" /);
+
+  buttons[2].click();
+  await settle();
+  assert.equal(buttons[1].getAttribute("aria-pressed"), "false");
+  assert.equal(buttons[2].getAttribute("aria-pressed"), "true");
   assert.equal(harness.playlistStatusElement.textContent, "Selected Evening.");
+  assert.match(harness.trackStatusElement.textContent, /^Created "Evening TrueShuffle" /);
+  assert.deepEqual(
+    backend.createBodies.map((body) => body.name),
+    ["Morning TrueShuffle", "Evening TrueShuffle"],
+    "each source shuffles into its own derived target"
+  );
 });
 
 test("disconnecting clears a rendered playlist list and track state", async () => {
-  const harness = createHarness({
-    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
-    playlistHandler: () => playlistPage([{id: "first", name: "Morning", tracks: {total: 1}}]),
-    trackHandler: steadyTrackHandler("first", "snap-1", 100, ["spotify:track:a"])
-  });
+  const backend = makeWriteBackend();
+  const harness = createHarness(Object.assign({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    playlistHandler: () => playlistPage([{id: "first", name: "Morning", tracks: {total: 1}}])
+  }, backendOptions(backend, steadyTrackHandler("first", "snap-1", 100, ["spotify:track:a"]))));
 
   await settle();
-  assert.equal(playlistButtons(harness).length, 1);
-  playlistButtons(harness)[0].click();
+  assert.equal(playlistButtons(harness).length, 2);
+  playlistButtons(harness)[1].click();
   await settle();
-  assert.match(harness.trackStatusElement.textContent, /^Loaded 1 track in \d+\.\ds\.$/);
+  assert.match(harness.trackStatusElement.textContent, /^Created "Morning TrueShuffle" /);
 
   harness.logoutButton.click();
 
@@ -693,52 +752,43 @@ test("disconnecting clears a rendered playlist list and track state", async () =
   assert.equal(harness.statusElement.textContent, "Spotify was disconnected from this browser.");
 });
 
-test("selecting a playlist reads every page and renders the count", async () => {
+test("a playlist chain reads every page and writes batched to its target", async () => {
   const uris = [];
   for (let index = 0; index < 250; index += 1) {
     uris.push("spotify:track:" + index);
   }
-  const harness = createHarness({
-    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
-    playlistHandler: () => playlistPage([{id: "big", name: "Big", tracks: {total: 250}}]),
-    trackHandler: steadyTrackHandler("big", "snap-1", 100, uris)
-  });
+  const backend = makeWriteBackend();
+  const harness = createHarness(Object.assign({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    playlistHandler: () => playlistPage([{id: "big", name: "Big", tracks: {total: 250}}])
+  }, backendOptions(backend, steadyTrackHandler("big", "snap-1", 100, uris))));
 
   await settle();
-  playlistButtons(harness)[0].click();
+  playlistButtons(harness)[1].click();
   await settle();
 
-  assert.match(harness.trackStatusElement.textContent, /^Loaded 250 tracks in \d+\.\ds\.$/);
-  assert.equal(harness.trackStatusElement.hidden, false);
-  assert.equal(harness.trackProgressElement.hidden, true, "the bar hides once the load settles");
-  const trackRequests = harness.requests.filter(
-    (request) => request.url.startsWith("https://api.spotify.com/v1/playlists/")
+  const sourceReads = harness.requests.filter(
+    (request) => request.url.includes("/v1/playlists/big")
   );
-  assert.deepEqual(trackRequests.map((request) => request.url), [
+  assert.deepEqual(sourceReads.map((request) => request.url), [
     snapshotURL("big"),
     trackURL("big", 0),
     trackURL("big", 100),
     trackURL("big", 200),
     snapshotURL("big")
   ]);
-  assert.equal(trackRequests[0].options.headers.Authorization, "Bearer current-access-token");
-  assert.equal(playlistButtons(harness)[0].disabled, false);
-});
-
-test("an empty playlist renders a zero count", async () => {
-  const harness = createHarness({
-    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
-    playlistHandler: () => playlistPage([{id: "empty", name: "Empty", tracks: {total: 0}}]),
-    trackHandler: steadyTrackHandler("empty", "snap-1", 100, [])
-  });
-
-  await settle();
-  playlistButtons(harness)[0].click();
-  await settle();
-
-  assert.match(harness.trackStatusElement.textContent, /^Loaded 0 tracks in \d+\.\ds\.$/);
-  assert.equal(harness.trackProgressElement.max, undefined,
-    "a zero-total read never shows the progress bar");
+  assert.equal(sourceReads[0].options.headers.Authorization, "Bearer current-access-token");
+  assert.deepEqual(backend.writes.map((write) => write.uris.length), [100, 100, 50]);
+  assert.deepEqual(
+    backend.writes.map((write) => write.uris).flat().slice().sort(),
+    uris.slice().sort()
+  );
+  assert.match(
+    harness.trackStatusElement.textContent,
+    /^Created "Big TrueShuffle" with 250 tracks in \d+\.\ds\.$/
+  );
+  assert.equal(harness.trackProgressElement.hidden, true, "the bar hides once the chain settles");
+  assert.equal(playlistButtons(harness)[1].disabled, false);
 });
 
 test("track pages dispatch through a bounded pool and assemble out of order", async () => {
@@ -747,33 +797,33 @@ test("track pages dispatch through a bounded pool and assemble out of order", as
     uris.push("spotify:track:" + index);
   }
   const deferredByOffset = new Map();
-  const harness = createHarness({
-    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
-    playlistHandler: () => playlistPage([{id: "big", name: "Big", tracks: {total: 8}}]),
-    trackHandler: (url) => {
-      if (url === snapshotURL("big")) {
-        return snapshotPage("snap-1");
-      }
-      if (url === trackURL("big", 0)) {
-        // The echoed limit of 1 is what the remaining offsets step by, so
-        // documentation assumptions about the page size cannot matter.
-        return trackPageResponse(1, 8, [uris[0]]);
-      }
-      const offset = Number(new URL(url).searchParams.get("offset"));
-      const entry = deferred();
-      deferredByOffset.set(offset, entry);
-      return entry.promise;
+  const backend = makeWriteBackend();
+  const harness = createHarness(Object.assign({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    playlistHandler: () => playlistPage([{id: "big", name: "Big", tracks: {total: 8}}])
+  }, backendOptions(backend, (url) => {
+    if (url === snapshotURL("big")) {
+      return snapshotPage("snap-1");
     }
-  });
+    if (url === trackURL("big", 0)) {
+      // The echoed limit of 1 is what the remaining offsets step by, so
+      // documentation assumptions about the page size cannot matter.
+      return trackPageResponse(1, 8, [uris[0]]);
+    }
+    const offset = Number(new URL(url).searchParams.get("offset"));
+    const entry = deferred();
+    deferredByOffset.set(offset, entry);
+    return entry.promise;
+  })));
 
   await settle();
-  playlistButtons(harness)[0].click();
+  playlistButtons(harness)[1].click();
   await settle();
 
   // Page 0 revealed 7 remaining pages; the pool holds 6 in flight.
   assert.deepEqual([...deferredByOffset.keys()], [1, 2, 3, 4, 5, 6]);
   assert.equal(harness.trackStatusElement.textContent, "Loading tracks...");
-  assert.equal(playlistButtons(harness)[0].disabled, true);
+  assert.equal(playlistButtons(harness)[1].disabled, true);
   // Page 0 also made progress determinate: server-truth max, one page done.
   assert.equal(harness.trackProgressElement.hidden, false);
   assert.equal(harness.trackProgressElement.max, 8);
@@ -789,9 +839,9 @@ test("track pages dispatch through a bounded pool and assemble out of order", as
   }
   await settle();
 
-  assert.match(harness.trackStatusElement.textContent, /^Loaded 8 tracks in \d+\.\ds\.$/);
+  assert.match(harness.trackStatusElement.textContent, /^Created "Big TrueShuffle" with 8 tracks in \d+\.\ds\.$/);
   assert.equal(harness.trackProgressElement.hidden, true);
-  assert.equal(playlistButtons(harness)[0].disabled, false);
+  assert.equal(playlistButtons(harness)[1].disabled, false);
 });
 
 test("a snapshot change during the read fails it and disturbs nothing else", async () => {
@@ -811,7 +861,7 @@ test("a snapshot change during the read fails it and disturbs nothing else", asy
   });
 
   await settle();
-  playlistButtons(harness)[0].click();
+  playlistButtons(harness)[1].click();
   await settle();
 
   assert.equal(
@@ -822,7 +872,7 @@ test("a snapshot change during the read fails it and disturbs nothing else", asy
   assert.equal(harness.playlistsElement.hidden, false);
   assert.equal(harness.statusElement.textContent, "Spotify is connected in this browser.");
   assert.equal(harness.playlistStatusElement.textContent, "Selected Morning.");
-  assert.equal(playlistButtons(harness)[0].disabled, false);
+  assert.equal(playlistButtons(harness)[1].disabled, false);
   // max === 1 proves the bar appeared during the read; hidden proves the
   // failed settle removed it.
   assert.equal(harness.trackProgressElement.max, 1);
@@ -839,7 +889,7 @@ test("a track count short of the total fails the read", async () => {
   });
 
   await settle();
-  playlistButtons(harness)[0].click();
+  playlistButtons(harness)[1].click();
   await settle();
 
   assert.equal(
@@ -858,7 +908,7 @@ test("a failed track read leaves the listing and token intact", async () => {
   });
 
   await settle();
-  playlistButtons(harness)[0].click();
+  playlistButtons(harness)[1].click();
   await settle();
 
   assert.equal(
@@ -868,7 +918,7 @@ test("a failed track read leaves the listing and token intact", async () => {
   assert.equal(localStorage.getItem(tokenStorageKey), rawToken);
   assert.equal(harness.playlistsElement.hidden, false);
   assert.equal(harness.statusElement.textContent, "Spotify is connected in this browser.");
-  assert.equal(playlistButtons(harness)[0].disabled, false);
+  assert.equal(playlistButtons(harness)[1].disabled, false);
 });
 
 // Objects built inside the vm realm carry that realm's prototypes, which
@@ -877,69 +927,49 @@ function plain(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-test("re-selecting an unchanged playlist renders from cache with zero track requests", async () => {
+test("re-selecting an unchanged playlist reaches the write with zero track requests", async () => {
   const indexedDB = new FakeIndexedDB();
-  const harness = createHarness({
+  const backend = makeWriteBackend();
+  const harness = createHarness(Object.assign({
     indexedDB: indexedDB,
-    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
     playlistHandler: () => playlistPage([
       {id: "steady", name: "Morning", tracks: {total: 2}, snapshot_id: "snap-1"}
-    ]),
-    trackHandler: steadyTrackHandler("steady", "snap-1", 100, ["spotify:track:a", "spotify:track:b"])
-  });
+    ])
+  }, backendOptions(backend, steadyTrackHandler("steady", "snap-1", 100, ["spotify:track:a", "spotify:track:b"]))));
 
   await settle();
-  playlistButtons(harness)[0].click();
+  playlistButtons(harness)[1].click();
   await settle();
 
-  assert.match(harness.trackStatusElement.textContent, /^Loaded 2 tracks in \d+\.\ds\.$/);
+  assert.match(
+    harness.trackStatusElement.textContent,
+    /^Created "Morning TrueShuffle" with 2 tracks in \d+\.\ds\.$/
+  );
   const stored = indexedDB.record("trueshuffle", "playlists", "steady");
   assert.equal(stored.snapshot_id, "snap-1");
   assert.deepEqual(plain(stored.uris), ["spotify:track:a", "spotify:track:b"]);
   assert.equal(typeof stored.cached_at, "number");
 
-  const readRequests = harness.requests.length;
-  playlistButtons(harness)[0].click();
+  const sourceReads = harness.requests.filter(
+    (request) => request.url.includes("/v1/playlists/steady")
+  ).length;
+  playlistButtons(harness)[1].click();
   await settle();
 
-  assert.equal(harness.requests.length, readRequests, "a cache hit issues zero requests");
-  assert.equal(harness.trackStatusElement.textContent, "Loaded 2 tracks.",
-    "a cache hit renders the plain count with no duration");
-  assert.equal(playlistButtons(harness)[0].disabled, false);
+  assert.equal(
+    harness.requests.filter((request) => request.url.includes("/v1/playlists/steady")).length,
+    sourceReads,
+    "a cache hit issues zero source track requests"
+  );
+  assert.deepEqual(backend.writes.map((write) => write.method), ["POST", "PUT"],
+    "the cache hit still reaches the write, overwriting the same target");
+  assert.match(
+    harness.trackStatusElement.textContent,
+    /^Updated "Morning TrueShuffle" with 2 tracks in \d+\.\ds\.$/
+  );
 });
 
-test("a cache hit never shows the progress bar", async () => {
-  const indexedDB = new FakeIndexedDB({
-    seed: {
-      trueshuffle: {
-        playlists: {
-          hit: {
-            snapshot_id: "snap-1",
-            uris: ["spotify:track:a", "spotify:track:b"],
-            cached_at: 1
-          }
-        }
-      }
-    }
-  });
-  const harness = createHarness({
-    indexedDB: indexedDB,
-    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
-    playlistHandler: () => playlistPage([
-      {id: "hit", name: "Morning", tracks: {total: 2}, snapshot_id: "snap-1"}
-    ])
-  });
-
-  await settle();
-  playlistButtons(harness)[0].click();
-  await settle();
-
-  assert.equal(harness.trackStatusElement.textContent, "Loaded 2 tracks.");
-  // No trackHandler is configured, so any track request would have failed
-  // the read; an untouched max proves the bar was never rendered at all.
-  assert.equal(harness.trackProgressElement.max, undefined);
-  assert.equal(harness.trackProgressElement.hidden, true);
-});
 
 test("a snapshot mismatch re-reads, stores, and reports added and removed counts", async () => {
   const indexedDB = new FakeIndexedDB({
@@ -955,23 +985,24 @@ test("a snapshot mismatch re-reads, stores, and reports added and removed counts
       }
     }
   });
-  const harness = createHarness({
+  const backend = makeWriteBackend();
+  const harness = createHarness(Object.assign({
     indexedDB: indexedDB,
-    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
     playlistHandler: () => playlistPage([
       {id: "changed", name: "Morning", tracks: {total: 3}, snapshot_id: "snap-new"}
-    ]),
-    trackHandler: steadyTrackHandler("changed", "snap-new", 100,
-      ["spotify:track:b", "spotify:track:c", "spotify:track:c"])
-  });
+    ])
+  }, backendOptions(backend, steadyTrackHandler("changed", "snap-new", 100,
+    ["spotify:track:b", "spotify:track:c", "spotify:track:c"]))));
 
   await settle();
-  playlistButtons(harness)[0].click();
+  playlistButtons(harness)[1].click();
   await settle();
 
   assert.match(
     harness.trackStatusElement.textContent,
-    /^Loaded 3 tracks in \d+\.\ds\. 2 added, 2 removed since last read\.$/
+    /^Created "Morning TrueShuffle" with 3 tracks in \d+\.\ds\. 2 added, 2 removed since last read\.$/,
+    "the write result keeps the membership difference visible"
   );
   const stored = indexedDB.record("trueshuffle", "playlists", "changed");
   assert.equal(stored.snapshot_id, "snap-new");
@@ -992,40 +1023,46 @@ test("a membership-identical change renders the plain count", async () => {
       }
     }
   });
-  const harness = createHarness({
+  const backend = makeWriteBackend();
+  const harness = createHarness(Object.assign({
     indexedDB: indexedDB,
-    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
     playlistHandler: () => playlistPage([
       {id: "reordered", name: "Morning", tracks: {total: 2}, snapshot_id: "snap-new"}
-    ]),
-    trackHandler: steadyTrackHandler("reordered", "snap-new", 100,
-      ["spotify:track:b", "spotify:track:a"])
-  });
+    ])
+  }, backendOptions(backend, steadyTrackHandler("reordered", "snap-new", 100,
+    ["spotify:track:b", "spotify:track:a"]))));
 
   await settle();
-  playlistButtons(harness)[0].click();
+  playlistButtons(harness)[1].click();
   await settle();
 
-  assert.match(harness.trackStatusElement.textContent, /^Loaded 2 tracks in \d+\.\ds\.$/,
-    "a membership-identical change renders no added/removed suffix");
+  assert.match(
+    harness.trackStatusElement.textContent,
+    /^Created "Morning TrueShuffle" with 2 tracks in \d+\.\ds\.$/,
+    "a membership-identical change renders no added/removed suffix"
+  );
 });
 
 test("an unavailable cache degrades to an uncached read", async () => {
-  const harness = createHarness({
+  const backend = makeWriteBackend();
+  const harness = createHarness(Object.assign({
     indexedDB: new FakeIndexedDB({unavailable: true}),
-    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
     playlistHandler: () => playlistPage([
       {id: "nocache", name: "Morning", tracks: {total: 1}, snapshot_id: "snap-1"}
-    ]),
-    trackHandler: steadyTrackHandler("nocache", "snap-1", 100, ["spotify:track:a"])
-  });
+    ])
+  }, backendOptions(backend, steadyTrackHandler("nocache", "snap-1", 100, ["spotify:track:a"]))));
 
   await settle();
-  playlistButtons(harness)[0].click();
+  playlistButtons(harness)[1].click();
   await settle();
 
-  assert.match(harness.trackStatusElement.textContent, /^Loaded 1 track in \d+\.\ds\.$/);
-  assert.equal(playlistButtons(harness)[0].disabled, false);
+  assert.match(
+    harness.trackStatusElement.textContent,
+    /^Created "Morning TrueShuffle" with 1 track in \d+\.\ds\.$/
+  );
+  assert.equal(playlistButtons(harness)[1].disabled, false);
 });
 
 test("a failed re-read preserves the previous cache record", async () => {
@@ -1048,7 +1085,7 @@ test("a failed re-read preserves the previous cache record", async () => {
   });
 
   await settle();
-  playlistButtons(harness)[0].click();
+  playlistButtons(harness)[1].click();
   await settle();
 
   assert.equal(
@@ -1096,7 +1133,7 @@ test("disconnecting during a track read renders nothing afterward", async () => 
   });
 
   await settle();
-  playlistButtons(harness)[0].click();
+  playlistButtons(harness)[1].click();
   await settle();
   assert.equal(harness.trackStatusElement.textContent, "Loading tracks...");
 
@@ -1125,338 +1162,190 @@ test("connect recovers from a partial pending authorization write", async () => 
   assert.equal(harness.connectButton.disabled, false);
 });
 
-test("a token without the library scope offers reconnection for Liked Songs", async () => {
+test("a token without the library scope shows the reconnect row", async () => {
   const harness = createHarness({
-    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())})
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
+    playlistHandler: () => playlistPage([{id: "first", name: "Morning", tracks: {total: 1}}])
   });
 
   await settle();
+  const buttons = playlistButtons(harness);
+  assert.equal(buttons[0].textContent, "Liked Songs (reconnect Spotify to enable)");
+  assert.equal(buttons[1].textContent, "Morning (1 track)");
 
-  assert.equal(harness.likedStatusElement.textContent, "Reconnect Spotify to enable Liked Songs.");
-  assert.equal(harness.likedConnectButton.hidden, false);
-  assert.equal(harness.likedLoadButton.hidden, true);
-
-  harness.likedConnectButton.click();
+  buttons[0].click();
   await settle(40);
 
-  assert.ok(harness.location.assigned, "reconnection starts the authorization flow");
+  assert.ok(harness.location.assigned, "the liked row starts the authorization flow");
   assert.ok(
     harness.location.assigned.includes("user-library-read"),
     "the authorize URL requests the library scope"
   );
 });
 
-test("loading Liked Songs reads every page and renders the count", async () => {
+test("one click on Liked Songs loads, shuffles, and writes the derived target", async () => {
   const uris = [];
   for (let index = 0; index < 120; index += 1) {
     uris.push("spotify:track:liked" + index);
   }
-  const harness = createHarness({
+  const backend = makeWriteBackend();
+  const harness = createHarness(Object.assign({
     localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
     likedHandler: steadyLikedHandler(50, uris)
-  });
+  }, backendOptions(backend)));
 
   await settle();
-  assert.equal(harness.likedStatusElement.textContent, "Liked Songs can be loaded.");
-  assert.equal(harness.likedConnectButton.hidden, true);
-  assert.equal(harness.likedLoadButton.hidden, false);
+  const buttons = playlistButtons(harness);
+  assert.equal(buttons[0].textContent, "Liked Songs");
 
-  harness.likedLoadButton.click();
+  buttons[0].click();
   await settle();
 
-  assert.match(harness.likedStatusElement.textContent, /^Loaded 120 tracks in \d+\.\ds\.$/);
   const likedRequests = harness.requests
     .filter((request) => request.url.startsWith("https://api.spotify.com/v1/me/tracks"))
     .map((request) => request.url);
-  assert.deepEqual(likedRequests, [
-    likedURL(0),
-    likedURL(50),
-    likedURL(100),
-    likedURL(0)
-  ], "page 0, the pooled offsets, then the verification probe");
-  assert.equal(harness.trackProgressElement.hidden, true);
-  assert.equal(harness.likedLoadButton.disabled, false);
-});
-
-test("a Liked Songs total drift fails the read", async () => {
-  let pageZeroCalls = 0;
-  const harness = createHarness({
-    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
-    likedHandler: (url) => {
-      if (url === likedURL(0)) {
-        pageZeroCalls += 1;
-        return trackPageResponse(50, pageZeroCalls === 1 ? 1 : 2, ["spotify:track:a"]);
-      }
-      throw new Error("unexpected liked request: " + url);
-    }
-  });
-
-  await settle();
-  harness.likedLoadButton.click();
-  await settle();
-
-  assert.equal(
-    harness.likedStatusElement.textContent,
-    "Liked Songs changed while loading. Load them again."
-  );
-});
-
-test("a failed Liked Songs read leaves playlists and token intact", async () => {
-  const rawToken = JSON.stringify(likedToken());
-  const localStorage = new FakeStorage({[tokenStorageKey]: rawToken});
-  const harness = createHarness({
-    localStorage: localStorage,
-    playlistHandler: () => playlistPage([{id: "first", name: "Morning", tracks: {total: 1}}]),
-    likedHandler: () => jsonResponse(500, {error: {status: 500}})
-  });
-
-  await settle();
-  harness.likedLoadButton.click();
-  await settle();
-
-  assert.equal(harness.likedStatusElement.textContent, "Liked Songs could not be loaded (Spotify returned 500 at /v1/me/tracks). Try again.");
-  assert.equal(localStorage.getItem(tokenStorageKey), rawToken);
-  assert.equal(harness.playlistsElement.hidden, false);
-  assert.equal(harness.statusElement.textContent, "Spotify is connected in this browser.");
-});
-
-test("a Liked Songs load disables the playlist buttons", async () => {
-  const entry = deferred();
-  const harness = createHarness({
-    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
-    playlistHandler: () => playlistPage([{id: "first", name: "Morning", tracks: {total: 1}}]),
-    likedHandler: () => entry.promise
-  });
-
-  await settle();
-  harness.likedLoadButton.click();
-  await settle();
-
-  assert.equal(playlistButtons(harness)[0].disabled, true);
-  assert.equal(harness.likedLoadButton.disabled, true);
-
-  entry.resolve(trackPageResponse(50, 1, ["spotify:track:a"]));
-  await settle();
-
-  assert.equal(playlistButtons(harness)[0].disabled, false);
-  assert.equal(harness.likedLoadButton.disabled, false);
-});
-
-test("disconnecting clears the Liked Songs section", async () => {
-  const harness = createHarness({
-    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
-    likedHandler: steadyLikedHandler(50, ["spotify:track:a"])
-  });
-
-  await settle();
-  harness.likedLoadButton.click();
-  await settle();
-  assert.match(harness.likedStatusElement.textContent, /^Loaded 1 track in \d+\.\ds\.$/);
-
-  harness.logoutButton.click();
-
-  assert.equal(harness.likedStatusElement.hidden, true);
-  assert.equal(harness.likedStatusElement.textContent, "");
-  assert.equal(harness.likedConnectButton.hidden, true);
-  assert.equal(harness.likedLoadButton.hidden, true);
-});
-
-// A working write-path world for one liked library: profile, playlist
-// creation, batch writes (methods and URIs recorded), and the final total
-// verification. The fake models replace-versus-append contents, so an
-// overwrite that fails to PUT its first batch fails the verification. Pass
-// an existing target id to start with the derived target already listed
-// and holding stale contents.
-function shuffleWorld(likedURIs, existingTargetId) {
-  const targetId = existingTargetId || "new-pl";
-  const world = {appendedBatches: [], createBodies: []};
-  world.targetContents = existingTargetId ? ["spotify:track:stale"] : null;
-  world.options = {
-    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
-    likedHandler: steadyLikedHandler(50, likedURIs),
-    meHandler: () => jsonResponse(200, {id: "user-1"}),
-    createPlaylistHandler: (url, requestOptions) => {
-      assert.equal(url, "https://api.spotify.com/v1/users/user-1/playlists");
-      assert.equal(requestOptions.method, "POST");
-      const body = JSON.parse(requestOptions.body);
-      world.createBodies.push(body);
-      return jsonResponse(200, {id: targetId, name: body.name});
-    },
-    trackHandler: (url, requestOptions) => {
-      if (url === "https://api.spotify.com/v1/playlists/" + targetId + "/tracks") {
-        const uris = JSON.parse(requestOptions.body).uris;
-        world.appendedBatches.push({method: requestOptions.method, uris: uris});
-        world.targetContents = requestOptions.method === "PUT"
-          ? uris.slice()
-          : (world.targetContents || []).concat(uris);
-        return jsonResponse(201, {snapshot_id: "write-snap"});
-      }
-      if (url === "https://api.spotify.com/v1/playlists/" + targetId + "?fields=tracks.total") {
-        return jsonResponse(200, {tracks: {total: (world.targetContents || []).length}});
-      }
-      throw new Error("unexpected playlist request: " + url);
-    }
-  };
-  if (existingTargetId) {
-    world.options.playlistHandler = () => playlistPage([
-      {id: "decoy", name: "Liked Songs TrueShuffle Backup", tracks: {total: 1}, snapshot_id: "snap-d"},
-      {id: existingTargetId, name: "Liked Songs TrueShuffle", tracks: {total: 1}, snapshot_id: "snap-t"}
-    ]);
-  }
-  return world;
-}
-
-async function loadLiked(harness) {
-  await settle();
-  harness.likedLoadButton.click();
-  await settle();
-}
-
-test("shuffling Liked Songs creates one new private playlist with every track", async () => {
-  const uris = ["spotify:track:a", "spotify:track:b", "spotify:track:c"];
-  const world = shuffleWorld(uris);
-  const harness = createHarness(world.options);
-
-  await loadLiked(harness);
-  assert.equal(harness.likedShuffleButton.hidden, false, "the shuffle action appears after a load");
-
-  harness.likedShuffleButton.click();
-  await settle();
-
-  assert.equal(world.createBodies.length, 1, "exactly one playlist is created");
-  assert.equal(world.createBodies[0].name, "Liked Songs TrueShuffle");
-  assert.equal(world.createBodies[0].public, false);
-  assert.equal(world.appendedBatches.length, 1);
-  assert.equal(world.appendedBatches[0].method, "POST",
+  assert.deepEqual(likedRequests, [likedURL(0), likedURL(50), likedURL(100), likedURL(0)],
+    "page 0, the pooled offsets, then the verification probe");
+  assert.equal(backend.createBodies.length, 1);
+  assert.equal(backend.createBodies[0].name, "Liked Songs TrueShuffle");
+  assert.equal(backend.createBodies[0].public, false);
+  assert.deepEqual(backend.writes.map((write) => write.method), ["POST", "POST"],
     "a freshly created target only appends");
-  assert.deepEqual(world.appendedBatches[0].uris.slice().sort(), uris.slice().sort(),
-    "the new playlist holds exactly the liked tracks, reordered");
+  assert.deepEqual(backend.writes.map((write) => write.uris.length), [100, 20]);
+  const written = backend.writes.map((write) => write.uris).flat();
+  assert.deepEqual(written.slice().sort(), uris.slice().sort(),
+    "the target holds exactly the liked tracks, reordered");
   assert.match(
-    harness.likedStatusElement.textContent,
-    /^Created "Liked Songs TrueShuffle" with 3 tracks in \d+\.\ds\.$/
+    harness.trackStatusElement.textContent,
+    /^Created "Liked Songs TrueShuffle" with 120 tracks in \d+\.\ds\.$/
   );
   assert.equal(harness.trackProgressElement.hidden, true);
-  assert.equal(harness.likedShuffleButton.disabled, false);
+  assert.equal(buttons[0].disabled, false);
 });
 
-test("an existing derived target is overwritten in place", async () => {
-  const uris = [];
-  for (let index = 0; index < 150; index += 1) {
-    uris.push("spotify:track:" + index);
-  }
-  const world = shuffleWorld(uris, "target-1");
-  const harness = createHarness(world.options);
+test("an existing derived target is overwritten and hidden from the list", async () => {
+  const uris = ["spotify:track:a", "spotify:track:b", "spotify:track:c"];
+  const backend = makeWriteBackend();
+  backend.targets.push({
+    id: "target-9",
+    name: "Liked Songs TrueShuffle",
+    contents: ["spotify:track:stale"]
+  });
+  const harness = createHarness(Object.assign({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    playlistHandler: () => playlistPage([
+      {id: "target-9", name: "Liked Songs TrueShuffle", tracks: {total: 1}, snapshot_id: "snap-t"},
+      {id: "first", name: "Morning", tracks: {total: 1}, snapshot_id: "snap-1"}
+    ]),
+    likedHandler: steadyLikedHandler(50, uris)
+  }, backendOptions(backend)));
 
-  await loadLiked(harness);
-  harness.likedShuffleButton.click();
+  await settle();
+  const buttons = playlistButtons(harness);
+  assert.deepEqual(
+    buttons.map((button) => button.textContent),
+    ["Liked Songs", "Morning (1 track)"],
+    "the derived playlist is hidden from the rendered list"
+  );
+
+  buttons[0].click();
   await settle();
 
-  assert.equal(world.createBodies.length, 0, "no playlist is created when the target exists");
+  assert.equal(backend.createBodies.length, 0, "no playlist is created when the target exists");
   assert.equal(
     harness.requests.every((request) => request.url !== "https://api.spotify.com/v1/me"),
     true,
     "an overwrite needs no profile read"
   );
-  assert.deepEqual(plain(world.appendedBatches.map((batch) => batch.method)), ["PUT", "POST"],
-    "the first batch replaces the contents, the rest append");
+  assert.deepEqual(backend.writesFor("target-9").map((write) => write.method), ["PUT"],
+    "the first batch replaces the contents");
   assert.deepEqual(
-    plain(world.targetContents).slice().sort(),
+    backend.find("target-9").contents.slice().sort(),
     uris.slice().sort(),
     "the stale contents are fully replaced"
   );
   assert.match(
-    harness.likedStatusElement.textContent,
-    /^Updated "Liked Songs TrueShuffle" with 150 tracks in \d+\.\ds\.$/
+    harness.trackStatusElement.textContent,
+    /^Updated "Liked Songs TrueShuffle" with 3 tracks in \d+\.\ds\.$/
   );
 });
 
 test("a second shuffle in the same page load overwrites the created target", async () => {
   const uris = ["spotify:track:a", "spotify:track:b", "spotify:track:c"];
-  const world = shuffleWorld(uris);
-  const harness = createHarness(world.options);
+  const backend = makeWriteBackend();
+  const harness = createHarness(Object.assign({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    likedHandler: steadyLikedHandler(50, uris)
+  }, backendOptions(backend)));
 
-  await loadLiked(harness);
-  harness.likedShuffleButton.click();
   await settle();
-  assert.match(harness.likedStatusElement.textContent, /^Created /);
+  playlistButtons(harness)[0].click();
+  await settle();
+  assert.match(harness.trackStatusElement.textContent, /^Created /);
 
-  harness.likedShuffleButton.click();
+  playlistButtons(harness)[0].click();
   await settle();
 
-  assert.equal(world.createBodies.length, 1, "the second shuffle creates nothing");
-  assert.deepEqual(plain(world.appendedBatches.map((batch) => batch.method)), ["POST", "PUT"],
+  assert.equal(backend.createBodies.length, 1, "the second shuffle creates nothing");
+  assert.deepEqual(backend.writes.map((write) => write.method), ["POST", "PUT"],
     "the second shuffle replaces the target created moments earlier");
   assert.match(
-    harness.likedStatusElement.textContent,
+    harness.trackStatusElement.textContent,
     /^Updated "Liked Songs TrueShuffle" with 3 tracks in \d+\.\ds\.$/
   );
 });
 
-test("shuffle appends run sequentially in batches of at most 100", async () => {
-  const uris = [];
-  for (let index = 0; index < 250; index += 1) {
-    uris.push("spotify:track:" + index);
-  }
-  const world = shuffleWorld(uris);
-  const harness = createHarness(world.options);
-
-  await loadLiked(harness);
-  harness.likedShuffleButton.click();
-  await settle();
-
-  assert.deepEqual(plain(world.appendedBatches.map((batch) => batch.uris.length)), [100, 100, 50]);
-  const written = world.appendedBatches.map((batch) => batch.uris).flat();
-  assert.deepEqual(written.slice().sort(), uris.slice().sort());
-  assert.match(
-    harness.likedStatusElement.textContent,
-    /^Created "Liked Songs TrueShuffle" with 250 tracks in \d+\.\ds\.$/
-  );
-});
-
-test("a failed append names the possibly partial playlist", async () => {
+test("a mid-write failure names the possibly partial target", async () => {
   const uris = [];
   for (let index = 0; index < 150; index += 1) {
     uris.push("spotify:track:" + index);
   }
-  const world = shuffleWorld(uris);
-  const workingTrackHandler = world.options.trackHandler;
-  world.options.trackHandler = (url, requestOptions) => {
-    if (url === "https://api.spotify.com/v1/playlists/new-pl/tracks" &&
-        world.appendedBatches.length === 1) {
+  const backend = makeWriteBackend();
+  const options = Object.assign({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    likedHandler: steadyLikedHandler(50, uris)
+  }, backendOptions(backend));
+  const workingTrackHandler = options.trackHandler;
+  options.trackHandler = (url, requestOptions) => {
+    if (url === "https://api.spotify.com/v1/playlists/target-1/tracks" &&
+        backend.writes.length === 1) {
       return jsonResponse(500, {error: {status: 500}});
     }
     return workingTrackHandler(url, requestOptions);
   };
-  const harness = createHarness(world.options);
+  const harness = createHarness(options);
 
-  await loadLiked(harness);
-  harness.likedShuffleButton.click();
+  await settle();
+  playlistButtons(harness)[0].click();
   await settle();
 
   assert.match(
-    harness.likedStatusElement.textContent,
-    /^"Liked Songs TrueShuffle" may be incomplete \(Spotify returned 500 at \/v1\/playlists\/new-pl\/tracks\)\. Shuffle again to rewrite it\.$/
+    harness.trackStatusElement.textContent,
+    /^"Liked Songs TrueShuffle" may be incomplete \(Spotify returned 500 at \/v1\/playlists\/target-1\/tracks\)\. Shuffle again to rewrite it\.$/
   );
   assert.equal(harness.trackProgressElement.hidden, true);
 });
 
 test("a verification shortfall never claims success", async () => {
-  const uris = ["spotify:track:a", "spotify:track:b"];
-  const world = shuffleWorld(uris);
-  const workingTrackHandler = world.options.trackHandler;
-  world.options.trackHandler = (url, requestOptions) => {
-    if (url === "https://api.spotify.com/v1/playlists/new-pl?fields=tracks.total") {
+  const backend = makeWriteBackend();
+  const options = Object.assign({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    likedHandler: steadyLikedHandler(50, ["spotify:track:a", "spotify:track:b"])
+  }, backendOptions(backend));
+  const workingTrackHandler = options.trackHandler;
+  options.trackHandler = (url, requestOptions) => {
+    if (url === "https://api.spotify.com/v1/playlists/target-1?fields=tracks.total") {
       return jsonResponse(200, {tracks: {total: 1}});
     }
     return workingTrackHandler(url, requestOptions);
   };
-  const harness = createHarness(world.options);
+  const harness = createHarness(options);
 
-  await loadLiked(harness);
-  harness.likedShuffleButton.click();
+  await settle();
+  playlistButtons(harness)[0].click();
   await settle();
 
-  assert.match(harness.likedStatusElement.textContent, /may be incomplete/);
+  assert.match(harness.trackStatusElement.textContent, /may be incomplete/);
 });
 
 test("a library above the playlist cap writes nothing", async () => {
@@ -1464,54 +1353,95 @@ test("a library above the playlist cap writes nothing", async () => {
   for (let index = 0; index < 10001; index += 1) {
     uris.push("spotify:track:" + index);
   }
-  const world = shuffleWorld(uris);
-  const harness = createHarness(world.options);
+  const backend = makeWriteBackend();
+  const harness = createHarness(Object.assign({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    likedHandler: steadyLikedHandler(50, uris)
+  }, backendOptions(backend)));
 
-  await loadLiked(harness);
-  assert.match(harness.likedStatusElement.textContent, /^Loaded 10001 tracks in \d+\.\ds\.$/);
-
-  harness.likedShuffleButton.click();
+  await settle();
+  playlistButtons(harness)[0].click();
   await settle();
 
   assert.equal(
-    harness.likedStatusElement.textContent,
-    "Liked Songs holds more than 10,000 tracks, the most a playlist can contain."
+    harness.trackStatusElement.textContent,
+    "\"Liked Songs\" holds more than 10,000 tracks, the most a playlist can contain."
   );
-  assert.equal(world.createBodies.length, 0);
-  assert.equal(world.appendedBatches.length, 0);
+  assert.equal(backend.createBodies.length, 0);
+  assert.equal(backend.writes.length, 0);
 });
 
-test("an empty library never offers the shuffle action", async () => {
-  const world = shuffleWorld([]);
-  const harness = createHarness(world.options);
+test("a source with no tracks reports that and writes nothing", async () => {
+  const backend = makeWriteBackend();
+  const harness = createHarness(Object.assign({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    playlistHandler: () => playlistPage([{id: "empty", name: "Empty", tracks: {total: 0}}]),
+    likedHandler: steadyLikedHandler(50, [])
+  }, backendOptions(backend, steadyTrackHandler("empty", "snap-1", 100, []))));
 
-  await loadLiked(harness);
+  await settle();
+  const buttons = playlistButtons(harness);
 
-  assert.match(harness.likedStatusElement.textContent, /^Loaded 0 tracks in \d+\.\ds\.$/);
-  assert.equal(harness.likedShuffleButton.hidden, true);
+  buttons[0].click();
+  await settle();
+  assert.equal(harness.trackStatusElement.textContent, "\"Liked Songs\" has no tracks to shuffle.");
+
+  buttons[1].click();
+  await settle();
+  assert.equal(harness.trackStatusElement.textContent, "\"Empty\" has no tracks to shuffle.");
+
+  assert.equal(backend.createBodies.length, 0);
+  assert.equal(backend.writes.length, 0);
 });
 
-test("a token without the write scope is offered reconnection before any write", async () => {
-  const world = shuffleWorld(["spotify:track:a"]);
-  world.options.localStorage = new FakeStorage({
-    [tokenStorageKey]: JSON.stringify(Object.assign(currentToken(), {
-      scope: "playlist-read-private user-library-read"
-    }))
-  });
-  const harness = createHarness(world.options);
+test("a token without the write scope stops before any write", async () => {
+  const backend = makeWriteBackend();
+  const harness = createHarness(Object.assign({
+    localStorage: new FakeStorage({
+      [tokenStorageKey]: JSON.stringify(Object.assign(currentToken(), {
+        scope: "playlist-read-private user-library-read"
+      }))
+    },),
+    likedHandler: steadyLikedHandler(50, ["spotify:track:a"])
+  }, backendOptions(backend)));
 
-  await loadLiked(harness);
-  assert.equal(harness.likedShuffleButton.hidden, false);
-
-  harness.likedShuffleButton.click();
+  await settle();
+  playlistButtons(harness)[0].click();
   await settle();
 
-  assert.equal(harness.likedStatusElement.textContent, "Reconnect Spotify to allow creating playlists.");
-  assert.equal(harness.likedConnectButton.hidden, false);
-  assert.equal(world.createBodies.length, 0, "no playlist is created without the scope");
+  assert.equal(
+    harness.trackStatusElement.textContent,
+    "Disconnect this browser and reconnect Spotify to allow creating playlists."
+  );
+  assert.equal(backend.createBodies.length, 0);
   assert.equal(
     harness.requests.every((request) => request.url !== "https://api.spotify.com/v1/me"),
     true,
     "no write-path request is issued without the scope"
   );
+});
+
+test("a chain in flight disables every row", async () => {
+  const entry = deferred();
+  const backend = makeWriteBackend();
+  const harness = createHarness(Object.assign({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    playlistHandler: () => playlistPage([{id: "first", name: "Morning", tracks: {total: 1}}]),
+    likedHandler: () => entry.promise
+  }, backendOptions(backend)));
+
+  await settle();
+  const buttons = playlistButtons(harness);
+  buttons[0].click();
+  await settle();
+
+  assert.equal(buttons[0].disabled, true);
+  assert.equal(buttons[1].disabled, true);
+
+  entry.resolve(trackPageResponse(50, 1, ["spotify:track:a"]));
+  await settle();
+
+  assert.equal(buttons[0].disabled, false);
+  assert.equal(buttons[1].disabled, false);
+  assert.match(harness.trackStatusElement.textContent, /^Created "Liked Songs TrueShuffle" /);
 });

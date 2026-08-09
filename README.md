@@ -20,24 +20,23 @@ time on every shuffle.
 ## Status
 
 The project currently provides a Go HTTP server with an embedded browser app,
-Spotify Authorization Code with PKCE, and a `GET /healthz` endpoint. The page
-can connect and disconnect Spotify in one browser, and lists the connected
-account's playlists so one can be selected. Selecting a playlist reads its
-ordered track URIs -- concurrently across pages, guarded by a snapshot check
-that fails the read if the playlist changes mid-flight -- and shows the track
-count, with a live progress bar during the pull and the elapsed time in the
-result. Track lists are cached in IndexedDB and validated with Spotify
-snapshots, so re-selecting an unchanged playlist issues no track requests,
-and a changed playlist is re-read and reports how many tracks were added and
-removed since the last read. A Liked Songs section reads the account's
-complete saved-tracks library the same way (Liked Songs is not a playlist
-and cannot be reordered in place; connections made before this feature show
-a one-time reconnect to grant the library scope) and can then shuffle every
-liked track into one stable derived playlist, "Liked Songs TrueShuffle" --
-created private on first use and rewritten in place on every rerun, so
-repeat shuffles never accumulate playlists. The only playlists the app
-ever writes are the ones it derives with the " TrueShuffle" suffix; source
-playlists are never modified.
+Spotify Authorization Code with PKCE, and a `GET /healthz` endpoint. After
+connecting Spotify, the page shows one list -- Liked Songs first, then the
+account's playlists -- and one click on any row shuffles it: the row's
+ordered track URIs are read (concurrently across pages, with a live progress
+bar and guards that fail the read if the source changes mid-flight), shuffled
+with unbiased crypto randomness, and written to that source's one stable
+derived playlist, `<source name> TrueShuffle` -- created private on first
+use and rewritten in place on every rerun, so repeat shuffles never
+accumulate playlists. Playlist track lists are cached in IndexedDB and
+validated with Spotify snapshots, so re-shuffling an unchanged playlist
+issues no track reads and a changed one reports how many tracks were added
+and removed. Liked Songs is read through the library API each time (it is
+not a playlist, has no snapshot, and cannot be reordered in place;
+connections made before this feature show a one-time reconnect on its row to
+grant the library scope). The app hides its own derived playlists from the
+list, and the only playlists it ever writes are the ones it derives with the
+" TrueShuffle" suffix; source playlists are never modified.
 
 The browser stores Spotify access and refresh tokens in `localStorage` under a
 versioned application key. The key retains the project's former

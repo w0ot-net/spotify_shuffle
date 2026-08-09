@@ -16,11 +16,12 @@ authorization code, verifier, or token. The app requests the scopes
 playlist a user later makes public stays overwritable without re-consent.
 
 A stored token's `scope` value gates capabilities added after it was
-granted: a token without `user-library-read` keeps working for playlists
-while the Liked Songs section offers a reconnect, and a token without
-`playlist-modify-private` is offered the same reconnect before any write
-is attempted. The reconnect is the ordinary authorization flow with the
-current scope list; there is no separate reconsent path.
+granted: a token without `user-library-read` keeps working for playlist
+rows while the Liked Songs row itself becomes the reconnect action,
+labeled as such -- the ordinary authorization flow with the current scope
+list; there is no separate reconsent path or dedicated widget. A token
+without `playlist-modify-private` stops the chain before any write with a
+message directing the user to disconnect and reconnect.
 
 ## Flow
 

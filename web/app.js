@@ -33,10 +33,9 @@
   const trackStatusElement = document.getElementById("track-status");
   const trackProgressElement = document.getElementById("track-progress");
   const playlistsElement = document.getElementById("playlists");
-  const likedStatusElement = document.getElementById("liked-status");
-  const likedConnectButton = document.getElementById("liked-connect");
-  const likedLoadButton = document.getElementById("liked-load");
-  const likedShuffleButton = document.getElementById("liked-shuffle");
+  // The list's first row. A hyphen cannot appear in a Spotify id, so this
+  // sentinel can never collide with a listed playlist.
+  const likedSource = {liked: true, id: "liked-songs", name: "Liked Songs"};
   let publicConfig = null;
   let selectedPlaylist = null;
   let playlistButtons = [];
@@ -44,13 +43,8 @@
   // derived target by name; a created target is appended so a second
   // shuffle in the same page load overwrites instead of duplicating.
   let listedPlaylists = [];
-  // The liked-songs library read: {uris}. Input for the shuffled-playlist
-  // increment.
-  let likedTracks = null;
-  // The token the liked-section buttons act with; null while disconnected.
-  let likedToken = null;
-  // The selected playlist's verified read: {id, snapshotId, uris}. This is
-  // the attachment point for caching and shuffle generation.
+  // The selected source's verified read: {id, snapshotId, uris}. Liked
+  // Songs loads here too, with a null snapshotId.
   let loadedTracks = null;
 
   function renderWorking(message) {
@@ -250,8 +244,6 @@
   function clearPlaylists() {
     selectedPlaylist = null;
     loadedTracks = null;
-    likedTracks = null;
-    likedToken = null;
     playlistButtons = [];
     listedPlaylists = [];
     playlistsElement.textContent = "";
@@ -261,11 +253,6 @@
     trackStatusElement.textContent = "";
     trackStatusElement.hidden = true;
     trackProgressElement.hidden = true;
-    likedStatusElement.textContent = "";
-    likedStatusElement.hidden = true;
-    likedConnectButton.hidden = true;
-    likedLoadButton.hidden = true;
-    likedShuffleButton.hidden = true;
   }
 
   async function requestSpotify(token, url, body, method) {
@@ -312,15 +299,12 @@
     throw new Error("Spotify returned more playlist pages than this app reads");
   }
 
-  // One operation at a time: every read or write action shares this gate,
-  // so loads cannot interleave and the progress element has one owner.
+  // One operation at a time: every row shares this gate, so chains cannot
+  // interleave and the progress element has one owner.
   function setActionButtonsDisabled(disabled) {
     for (const button of playlistButtons) {
       button.disabled = disabled;
     }
-    likedConnectButton.disabled = disabled;
-    likedLoadButton.disabled = disabled;
-    likedShuffleButton.disabled = disabled;
   }
 
   async function fetchTrackPages(token, urlForOffset, offsets, onPage) {
@@ -467,9 +451,11 @@
     }
   }
 
-  async function loadTracks(token, playlist) {
+  // Loads the playlist's URIs cache-first, rendering the loaded message or
+  // the failure; returns {uris, changes} or null when the chain must stop.
+  // The chain owns the button gate and the progress element's teardown.
+  async function loadPlaylistSource(token, playlist) {
     loadedTracks = null;
-    setActionButtonsDisabled(true);
     renderTrackStatus("Loading tracks...");
     try {
       const cached = await readTrackCache(playlist.id);
@@ -479,7 +465,7 @@
           cached.snapshot_id === playlist.snapshotId) {
         loadedTracks = {id: playlist.id, snapshotId: cached.snapshot_id, uris: cached.uris};
         renderTrackStatus(TrueShuffle.loadedTracksMessage(cached.uris.length, null, null));
-        return;
+        return {uris: cached.uris, changes: null};
       }
 
       const readStart = Date.now();
@@ -487,52 +473,30 @@
       const elapsedMilliseconds = Date.now() - readStart;
       // Disconnecting mid-read cleared the page; drop the late result.
       if (!selectionActive(playlist)) {
-        return;
+        return null;
       }
+      const changes = cached !== null
+        ? TrueShuffle.countTrackChanges(cached.uris, read.uris)
+        : null;
       loadedTracks = {id: playlist.id, snapshotId: read.snapshotId, uris: read.uris};
       renderTrackStatus(TrueShuffle.loadedTracksMessage(
-        read.uris.length,
-        elapsedMilliseconds,
-        cached !== null ? TrueShuffle.countTrackChanges(cached.uris, read.uris) : null
+        read.uris.length, elapsedMilliseconds, changes
       ));
       await writeTrackCache(playlist.id, {
         snapshot_id: read.snapshotId,
         uris: read.uris,
         cached_at: Date.now()
       });
+      return {uris: read.uris, changes: changes};
     } catch (error) {
       if (!selectionActive(playlist)) {
-        return;
+        return null;
       }
       renderTrackStatus(error instanceof TrueShuffle.PlaylistChangedError
         ? "This playlist changed while loading. Select it again."
         : "Tracks could not be loaded" + failureDetail(error) +
           ". Select the playlist again to retry.");
-    } finally {
-      trackProgressElement.hidden = true;
-      setActionButtonsDisabled(false);
-    }
-  }
-
-  function renderLikedStatus(message) {
-    likedStatusElement.textContent = message;
-    likedStatusElement.hidden = false;
-  }
-
-  function renderLikedSection(token) {
-    likedTracks = null;
-    likedToken = token;
-    likedShuffleButton.hidden = true;
-    if (TrueShuffle.hasScope(token.scope, likedScope)) {
-      renderLikedStatus("Liked Songs can be loaded.");
-      likedConnectButton.hidden = true;
-      likedLoadButton.hidden = false;
-    } else {
-      // Tokens granted before the scope existed keep working for playlists;
-      // only the liked section asks for a reconsent.
-      renderLikedStatus("Reconnect Spotify to enable Liked Songs.");
-      likedConnectButton.hidden = false;
-      likedLoadButton.hidden = true;
+      return null;
     }
   }
 
@@ -566,34 +530,31 @@
     return uris;
   }
 
-  async function loadLikedTracks(token) {
-    likedTracks = null;
-    likedShuffleButton.hidden = true;
-    setActionButtonsDisabled(true);
-    renderLikedStatus("Loading Liked Songs...");
+  // The Liked Songs counterpart of loadPlaylistSource: no cache, since the
+  // library has no snapshot to validate a record against.
+  async function loadLikedSource(token, source) {
+    loadedTracks = null;
+    renderTrackStatus("Loading Liked Songs...");
     const loadStart = Date.now();
     try {
       const uris = await readLikedTracks(token, renderTrackProgress);
       // Disconnecting mid-read cleared the page; drop the late result.
-      if (likedToken === null) {
-        return;
+      if (!selectionActive(source)) {
+        return null;
       }
-      likedTracks = {uris: uris};
-      renderLikedStatus(TrueShuffle.loadedTracksMessage(
+      loadedTracks = {id: source.id, snapshotId: null, uris: uris};
+      renderTrackStatus(TrueShuffle.loadedTracksMessage(
         uris.length, Date.now() - loadStart, null
       ));
-      likedShuffleButton.hidden = uris.length === 0;
+      return {uris: uris, changes: null};
     } catch (error) {
-      if (likedToken === null) {
-        return;
+      if (!selectionActive(source)) {
+        return null;
       }
-      likedTracks = null;
-      renderLikedStatus(error instanceof TrueShuffle.PlaylistChangedError
-        ? "Liked Songs changed while loading. Load them again."
-        : "Liked Songs could not be loaded" + failureDetail(error) + ". Try again.");
-    } finally {
-      trackProgressElement.hidden = true;
-      setActionButtonsDisabled(false);
+      renderTrackStatus(error instanceof TrueShuffle.PlaylistChangedError
+        ? "Liked Songs changed while loading. Select it again."
+        : "Liked Songs could not be loaded" + failureDetail(error) + ". Select it again.");
+      return null;
     }
   }
 
@@ -613,22 +574,9 @@
   // flow addresses is either returned by the create call it just made or
   // found in the listing under the exact derived name, so a playlist
   // without the suffix is unreachable by construction.
-  async function createShuffledPlaylist(token) {
-    const uris = likedTracks.uris;
-    if (uris.length > TrueShuffle.maxPlaylistTracks) {
-      renderLikedStatus("Liked Songs holds more than 10,000 tracks, the most a playlist can contain.");
-      return;
-    }
-    // Writing needs the modify scope; a token without it would only earn a
-    // 403, so offer the reconnect up front.
-    if (!TrueShuffle.hasScope(token.scope, playlistWriteScope)) {
-      renderLikedStatus("Reconnect Spotify to allow creating playlists.");
-      likedConnectButton.hidden = false;
-      return;
-    }
-    setActionButtonsDisabled(true);
-    const targetName = TrueShuffle.derivedPlaylistName("Liked Songs");
-    renderLikedStatus("Shuffling into \"" + targetName + "\"...");
+  async function writeShuffled(token, source, uris, changes) {
+    const targetName = TrueShuffle.derivedPlaylistName(source.name);
+    renderTrackStatus("Shuffling into \"" + targetName + "\"...");
     const writeStart = Date.now();
     let target = TrueShuffle.findPlaylistByName(listedPlaylists, targetName);
     const overwriting = target !== null;
@@ -668,59 +616,110 @@
       if (total !== shuffled.length) {
         throw new Error("the target playlist does not contain every track");
       }
-      if (likedToken === null) {
+      if (!selectionActive(source)) {
         return;
       }
-      renderLikedStatus(TrueShuffle.shuffleResultMessage(
+      renderTrackStatus(TrueShuffle.shuffleResultMessage(
         !overwriting, target.name, shuffled.length, Date.now() - writeStart
-      ));
+      ) + TrueShuffle.trackChangesSuffix(changes));
     } catch (error) {
-      if (likedToken === null) {
+      if (!selectionActive(source)) {
         return;
       }
-      renderLikedStatus(target === null
+      renderTrackStatus(target === null
         ? "The shuffled playlist could not be created" + failureDetail(error) + ". Try again."
         : "\"" + target.name + "\" may be incomplete" + failureDetail(error) +
           ". Shuffle again to rewrite it.");
+    }
+  }
+
+  // The one gesture: load the row's tracks, shuffle, and write the derived
+  // target, under a single button gate and one progress element.
+  async function runShuffle(token, source) {
+    setActionButtonsDisabled(true);
+    try {
+      const loaded = source.liked
+        ? await loadLikedSource(token, source)
+        : await loadPlaylistSource(token, source);
+      if (loaded === null) {
+        return;
+      }
+      if (loaded.uris.length === 0) {
+        renderTrackStatus(TrueShuffle.emptySourceMessage(source.name));
+        return;
+      }
+      if (loaded.uris.length > TrueShuffle.maxPlaylistTracks) {
+        renderTrackStatus("\"" + source.name + "\" holds more than 10,000 tracks, the most a playlist can contain.");
+        return;
+      }
+      // Writing needs the modify scope; a token without it would only earn
+      // a 403. Reconnecting is the fix, and disconnect is the way there.
+      if (!TrueShuffle.hasScope(token.scope, playlistWriteScope)) {
+        renderTrackStatus("Disconnect this browser and reconnect Spotify to allow creating playlists.");
+        return;
+      }
+      await writeShuffled(token, source, loaded.uris, loaded.changes);
     } finally {
       trackProgressElement.hidden = true;
       setActionButtonsDisabled(false);
     }
   }
 
-  function selectPlaylist(token, playlist, button) {
+  function selectPlaylist(token, source, button) {
     if (selectedPlaylist) {
       selectedPlaylist.button.setAttribute("aria-pressed", "false");
     }
-    selectedPlaylist = {id: playlist.id, name: playlist.name, button: button};
+    selectedPlaylist = {id: source.id, name: source.name, button: button};
     button.setAttribute("aria-pressed", "true");
-    renderPlaylistStatus("Selected " + playlist.name + ".");
-    return loadTracks(token, playlist);
+    renderPlaylistStatus("Selected " + source.name + ".");
+    return runShuffle(token, source);
   }
 
-  function renderPlaylists(token, playlists) {
+  function appendSourceRow(label, onClick) {
+    const button = document.createElement("button");
+    button.type = "button";
+    // Playlist names are third-party text and must never become markup.
+    button.textContent = label;
+    button.setAttribute("aria-pressed", "false");
+    button.addEventListener("click", function () {
+      onClick(button);
+    });
+
+    const item = document.createElement("li");
+    item.appendChild(button);
+    playlistsElement.appendChild(item);
+    playlistButtons.push(button);
+  }
+
+  function renderSourceList(token, playlists) {
     playlistsElement.textContent = "";
     playlistButtons = [];
-    for (const playlist of playlists) {
-      const button = document.createElement("button");
-      button.type = "button";
-      // Playlist names are third-party text and must never become markup.
-      button.textContent = TrueShuffle.playlistLabel(playlist);
-      button.setAttribute("aria-pressed", "false");
-      button.addEventListener("click", function () {
+
+    // Liked Songs leads the list; without the library scope the row is the
+    // reconnect surface, running the ordinary authorization flow.
+    const hasLibraryScope = TrueShuffle.hasScope(token.scope, likedScope);
+    appendSourceRow(TrueShuffle.likedRowLabel(hasLibraryScope), function (button) {
+      if (hasLibraryScope) {
+        selectPlaylist(token, likedSource, button);
+        return;
+      }
+      setActionButtonsDisabled(true);
+      startAuthorization().catch(function () {
+        clearPendingAuthorization();
+        setActionButtonsDisabled(false);
+        renderTrackStatus("Spotify authorization could not be started.");
+      });
+    });
+
+    for (const playlist of TrueShuffle.displayedPlaylists(playlists)) {
+      appendSourceRow(TrueShuffle.playlistLabel(playlist), function (button) {
         selectPlaylist(token, playlist, button);
       });
-
-      const item = document.createElement("li");
-      item.appendChild(button);
-      playlistsElement.appendChild(item);
-      playlistButtons.push(button);
     }
     playlistsElement.hidden = false;
   }
 
   async function loadPlaylists(token) {
-    renderLikedSection(token);
     renderPlaylistStatus("Loading playlists...");
     let playlists;
     try {
@@ -731,13 +730,8 @@
       return;
     }
     listedPlaylists = playlists;
-
-    if (playlists.length === 0) {
-      renderPlaylistStatus("This Spotify account has no playlists.");
-      return;
-    }
-    renderPlaylists(token, playlists);
-    renderPlaylistStatus("Select a playlist.");
+    renderSourceList(token, playlists);
+    renderPlaylistStatus("Select a playlist to shuffle it.");
   }
 
   async function startAuthorization() {
@@ -860,27 +854,6 @@
       clearPendingAuthorization();
       renderError("Spotify authorization could not be started.", true);
     });
-  });
-
-  likedConnectButton.addEventListener("click", function () {
-    likedConnectButton.disabled = true;
-    startAuthorization().catch(function () {
-      clearPendingAuthorization();
-      likedConnectButton.disabled = false;
-      renderLikedStatus("Spotify authorization could not be started.");
-    });
-  });
-
-  likedLoadButton.addEventListener("click", function () {
-    if (likedToken !== null) {
-      loadLikedTracks(likedToken);
-    }
-  });
-
-  likedShuffleButton.addEventListener("click", function () {
-    if (likedToken !== null && likedTracks !== null) {
-      createShuffledPlaylist(likedToken);
-    }
   });
 
   logoutButton.addEventListener("click", function () {

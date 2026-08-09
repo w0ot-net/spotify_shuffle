@@ -283,6 +283,16 @@ var TrueShuffle = (function () {
     return {added: added, removed: removed};
   }
 
+  // The membership-difference sentence, empty when nothing changed, shared
+  // by the loaded message and the shuffle result.
+  function trackChangesSuffix(changes) {
+    if (!changes || (changes.added === 0 && changes.removed === 0)) {
+      return "";
+    }
+    return " " + changes.added + " added, " + changes.removed +
+      " removed since last read.";
+  }
+
   // The full loaded-tracks message: plain count for a cache hit (null
   // elapsed), one-decimal duration for a network read, and the membership
   // difference when a prior record existed and something changed.
@@ -291,12 +301,23 @@ var TrueShuffle = (function () {
     if (elapsedMilliseconds !== null) {
       message += " in " + (Math.max(0, elapsedMilliseconds) / 1000).toFixed(1) + "s";
     }
-    message += ".";
-    if (changes && (changes.added !== 0 || changes.removed !== 0)) {
-      message += " " + changes.added + " added, " + changes.removed +
-        " removed since last read.";
-    }
-    return message;
+    return message + "." + trackChangesSuffix(changes);
+  }
+
+  // The rendered list hides the app's own derived playlists; the retained
+  // listing keeps them so the write flow's target lookup still sees them.
+  function displayedPlaylists(playlists) {
+    return playlists.filter(function (playlist) {
+      return !playlist.name.endsWith(derivedPlaylistSuffix);
+    });
+  }
+
+  function likedRowLabel(hasLibraryScope) {
+    return hasLibraryScope ? "Liked Songs" : "Liked Songs (reconnect Spotify to enable)";
+  }
+
+  function emptySourceMessage(name) {
+    return "\"" + name + "\" has no tracks to shuffle.";
   }
 
   function assembleTrackPages(pages, total) {
@@ -325,8 +346,11 @@ var TrueShuffle = (function () {
     createPlaylistURL: createPlaylistURL,
     derivedPlaylistName: derivedPlaylistName,
     derivedPlaylistSuffix: derivedPlaylistSuffix,
+    displayedPlaylists: displayedPlaylists,
+    emptySourceMessage: emptySourceMessage,
     findPlaylistByName: findPlaylistByName,
     hasScope: hasScope,
+    likedRowLabel: likedRowLabel,
     likedPageURL: likedPageURL,
     loadedTracksMessage: loadedTracksMessage,
     maxPlaylistTracks: maxPlaylistTracks,
@@ -345,6 +369,7 @@ var TrueShuffle = (function () {
     shuffledURIs: shuffledURIs,
     shuffleResultMessage: shuffleResultMessage,
     SpotifyRequestError: SpotifyRequestError,
+    trackChangesSuffix: trackChangesSuffix,
     trackPageURL: trackPageURL,
     uriBatches: uriBatches,
     validPlaylistCursor: validPlaylistCursor,
