@@ -8,7 +8,11 @@
 <body>
   <main>
     <h1>Spotify Shuffle</h1>
-    <p>Spotify connection is not configured yet.</p>
+    <p id="status" role="status" aria-live="polite">Checking Spotify connection...</p>
+    <button id="connect" type="button" hidden>Connect Spotify</button>
+    <button id="logout" type="button" hidden>Disconnect this browser</button>
+    <noscript>JavaScript is required to connect Spotify.</noscript>
   </main>
+  <script src="/app.js" defer></script>
 </body>
 </html>

@@ -15,21 +15,27 @@ time on every shuffle.
 - Cache playlist membership with IndexedDB and validate it with Spotify
   snapshots.
 - Respect Spotify API rate limits and retry guidance.
-- Keep Spotify authentication tokens out of browser storage when a backend is
-  used.
+- Keep long-lived Spotify authorization under the user's browser control.
 
 ## Status
 
-The project currently provides a minimal Go HTTP server with an embedded home
-page and a `GET /healthz` endpoint. Spotify integration and an interactive
-browser interface remain planned work.
+The project currently provides a Go HTTP server with an embedded browser app,
+Spotify Authorization Code with PKCE, and a `GET /healthz` endpoint. The page
+can connect and disconnect Spotify in one browser. It does not yet read or
+modify playlists.
+
+The browser stores Spotify access and refresh tokens in `localStorage` under a
+versioned application key. Temporary OAuth state and the PKCE verifier use
+`sessionStorage`. The Go service receives neither token and exposes only the
+public Spotify client ID.
 
 ## Run
 
-Go 1.22 or later is required.
+Go 1.22 or later is required. Set the public client ID from the Spotify
+Developer Dashboard when starting the server:
 
 ```sh
-go run .
+SPOTIFY_CLIENT_ID=your-client-id go run .
 ```
 
 Open <http://127.0.0.1:8080/> in a browser to view the home page.
@@ -38,14 +44,43 @@ The server listens on `127.0.0.1:8080` by default. Set `LISTEN_ADDR` to use a
 different address:
 
 ```sh
-LISTEN_ADDR=127.0.0.1:9090 go run .
+SPOTIFY_CLIENT_ID=your-client-id LISTEN_ADDR=127.0.0.1:9090 go run .
 ```
+
+Register the exact callback for each origin used to run the app. The default
+local callback is:
+
+```text
+http://127.0.0.1:8080/callback
+```
+
+The deployed callback is:
+
+```text
+https://shuffle.p.a-9.co/callback
+```
+
+The app requests `playlist-read-private`, `playlist-modify-public`, and
+`playlist-modify-private`. These grants are stored for the upcoming playlist
+management work; the current page does not make playlist API calls.
 
 Check the running server with:
 
 ```sh
 curl http://127.0.0.1:8080/healthz
 ```
+
+## Browser security
+
+The authenticated application origin must load only repository-owned
+JavaScript. Response headers enforce a restrictive Content Security Policy and
+do not permit third-party scripts, inline scripts, or `eval`. Advertising,
+analytics, or other third-party JavaScript must use a separate origin and must
+not receive Spotify data.
+
+"Disconnect this browser" deletes the local token record. It does not revoke
+the authorization grant in Spotify; reconnecting or revoking the app through
+Spotify remains a separate action.
 
 ## Test
 
