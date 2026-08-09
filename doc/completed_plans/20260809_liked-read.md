@@ -138,3 +138,31 @@ under the standing deployment direction.
 - Disconnect clears the section and its state.
 - Purity grep clean; all prior tests pass unmodified except the offsets
   cap case named in scope.
+
+## Execution Notes
+
+Executed 2026-08-09. Implementation commit `b058517`.
+
+Implemented as planned: `likedPageURL`, `hasScope`, the exported
+`maxPlaylistTracks`, and the `remainingTrackOffsets` maximum argument in
+`web/pure.js` (the playlist read passes 10,000, the liked read
+`Number.MAX_SAFE_INTEGER`); the pool now takes a URL-for-offset function;
+the liked section with scope-gated reconnect, the total-pinned read with
+final-probe verification, `likedTracks` page state, and the shared
+`setActionButtonsDisabled` gate in `web/app.js`; three new page elements
+with Go markers; the authorization-model, integration, application-model,
+and README updates.
+
+Deviations: a module-scope `likedToken` (set when the section renders,
+cleared on disconnect) carries the token to the section's click handlers
+and doubles as the late-result guard for a read that outlives a
+disconnect -- the same posture the playlist read has.
+
+Validation, all passing: `gofmt -l main.go main_test.go` (no output),
+`go test ./...`, `go vet ./...`, `node --check` on both web scripts,
+`node --test web/pure_test.js web/app_test.js` (57 pass, 0 fail),
+`git diff --check`, and the inverted purity grep.
+
+Deployment and live confirmation follow with the companion
+`20260809_liked-shuffle.md` execution under the standing deployment
+direction.
