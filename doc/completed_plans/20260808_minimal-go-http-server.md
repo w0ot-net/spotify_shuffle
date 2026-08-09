@@ -89,3 +89,45 @@ text, and `ok\n`. The test will exercise the handler in memory with
   Spotify functionality.
 - No Spotify, frontend, storage, proxy, service-manager, or production-hardening
   behavior is introduced.
+
+## Execution Notes
+
+Completed on 2026-08-08.
+
+Implemented behavior:
+
+- Added the `github.com/w0ot-net/spotify_shuffle` Go 1.22 module.
+- Added a root standard-library HTTP server with a default
+  `127.0.0.1:8080` listener and `LISTEN_ADDR` override.
+- Added the deterministic `GET /healthz` response and its focused in-memory
+  test.
+- Updated the README with the implemented status and exact run, override,
+  health-check, and test commands.
+
+Changed ownership boundaries:
+
+- `main.go` owns process startup, listen-address selection, and routing.
+- `main_test.go` owns the health endpoint contract test.
+- No package hierarchy or external dependency was introduced.
+
+Deviations:
+
+- None.
+
+Validation:
+
+- `gofmt -w main.go main_test.go`: completed successfully.
+- `go test ./...`: passed for `github.com/w0ot-net/spotify_shuffle`.
+- Temporary-build smoke check with `LISTEN_ADDR=127.0.0.1:18080`: returned
+  status `200`, `Content-Type: text/plain; charset=utf-8`, and body `ok\n`.
+- `git diff --check`: passed before the implementation commit.
+
+Implementation commit:
+
+- `7985e61` (`Add minimal Go HTTP server`).
+
+Unresolved blockers and excluded follow-up:
+
+- None. Spotify integration, frontend behavior, storage, deployment,
+  observability, graceful shutdown, and production hardening remain deliberately
+  outside this completed plan.
