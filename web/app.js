@@ -10,6 +10,8 @@
   // Wide enough to matter for a 100-page playlist, narrow enough not to
   // invite 429s; a 429 still fails the read under the fail-fast posture.
   const maxConcurrentTrackRequests = 6;
+  const trackCacheDatabaseName = "trueshuffle";
+  const trackCacheStoreName = "playlists";
   // Keep the legacy namespace so the product rename preserves browser sessions.
   const tokenStorageKey = "spotify_shuffle.oauth.v1";
   const stateStorageKey = "spotify_shuffle.oauth.state.v1";
@@ -320,19 +322,121 @@
     return selectedPlaylist !== null && selectedPlaylist.id === playlist.id;
   }
 
+  function openTrackCache() {
+    return new Promise(function (resolve, reject) {
+      const request = window.indexedDB.open(trackCacheDatabaseName, 1);
+      request.onupgradeneeded = function () {
+        request.result.createObjectStore(trackCacheStoreName);
+      };
+      request.onsuccess = function () {
+        resolve(request.result);
+      };
+      request.onerror = function () {
+        reject(request.error || new Error("track cache could not be opened"));
+      };
+    });
+  }
+
+  // The cache is an optimization: an unavailable or unreadable store is a
+  // miss and a failed write leaves the rendered result standing, so a
+  // browser without IndexedDB still reads playlists.
+  async function readTrackCache(playlistId) {
+    try {
+      const database = await openTrackCache();
+      try {
+        const record = await new Promise(function (resolve, reject) {
+          const request = database.transaction(trackCacheStoreName, "readonly")
+            .objectStore(trackCacheStoreName)
+            .get(playlistId);
+          request.onsuccess = function () {
+            resolve(request.result);
+          };
+          request.onerror = function () {
+            reject(request.error);
+          };
+        });
+        return TrueShuffle.validTrackCacheRecord(record) ? record : null;
+      } finally {
+        database.close();
+      }
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function writeTrackCache(playlistId, record) {
+    try {
+      const database = await openTrackCache();
+      try {
+        await new Promise(function (resolve, reject) {
+          const transaction = database.transaction(trackCacheStoreName, "readwrite");
+          transaction.objectStore(trackCacheStoreName).put(record, playlistId);
+          transaction.oncomplete = function () {
+            resolve();
+          };
+          transaction.onerror = function () {
+            reject(transaction.error);
+          };
+          transaction.onabort = function () {
+            reject(transaction.error);
+          };
+        });
+      } finally {
+        database.close();
+      }
+    } catch (_) {
+      // The verified read is already rendered; the cache just missed it.
+    }
+  }
+
+  function deleteTrackCache() {
+    // Cached URIs are private account data; disconnect removes the database.
+    try {
+      window.indexedDB.deleteDatabase(trackCacheDatabaseName);
+    } catch (_) {
+      // Cache deletion is best effort.
+    }
+  }
+
+  function trackCountMessage(count) {
+    return "Loaded " + count + (count === 1 ? " track." : " tracks.");
+  }
+
   async function loadTracks(token, playlist) {
     loadedTracks = null;
     setPlaylistButtonsDisabled(true);
     renderTrackStatus("Loading tracks...");
     try {
+      const cached = await readTrackCache(playlist.id);
+      // Snapshot equality is the entire validity rule: a matching record is
+      // the full ordered list, so a hit issues zero track requests.
+      if (cached !== null && playlist.snapshotId !== null &&
+          cached.snapshot_id === playlist.snapshotId) {
+        loadedTracks = {id: playlist.id, snapshotId: cached.snapshot_id, uris: cached.uris};
+        renderTrackStatus(trackCountMessage(cached.uris.length));
+        return;
+      }
+
       const read = await readPlaylistTracks(token, playlist.id);
       // Disconnecting mid-read cleared the page; drop the late result.
       if (!selectionActive(playlist)) {
         return;
       }
       loadedTracks = {id: playlist.id, snapshotId: read.snapshotId, uris: read.uris};
-      renderTrackStatus("Loaded " + read.uris.length +
-        (read.uris.length === 1 ? " track." : " tracks."));
+      let message = trackCountMessage(read.uris.length);
+      if (cached !== null) {
+        const changes = TrueShuffle.countTrackChanges(cached.uris, read.uris);
+        if (changes.added !== 0 || changes.removed !== 0) {
+          message += " " + changes.added + " added, " + changes.removed +
+            " removed since last read.";
+        }
+      }
+      renderTrackStatus(message);
+      await writeTrackCache(playlist.id, {
+        snapshot_id: read.snapshotId,
+        uris: read.uris,
+        cached_at: Date.now()
+      });
     } catch (error) {
       if (!selectionActive(playlist)) {
         return;
@@ -521,6 +625,7 @@
     logoutButton.disabled = true;
     clearPendingAuthorization();
     clearStoredToken();
+    deleteTrackCache();
     clearPlaylists();
     renderDisconnected("Spotify was disconnected from this browser.");
   });

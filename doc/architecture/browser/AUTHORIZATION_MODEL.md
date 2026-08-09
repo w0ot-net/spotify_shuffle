@@ -58,6 +58,7 @@ Failure handling is per path, and the distinctions are load-bearing:
   is not evidence of revocation; the page stays connected and scopes the
   failure to the playlist section.
 
-Disconnecting deletes the local record, pending entries, and playlist state.
-It does not revoke the grant at Spotify; revocation remains an action in the
-user's Spotify account.
+Disconnecting deletes the local record, pending entries, playlist and track
+page state, and the track cache database (see the
+[data model](DATA_MODEL.md)). It does not revoke the grant at Spotify;
+revocation remains an action in the user's Spotify account.

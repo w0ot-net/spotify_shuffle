@@ -27,8 +27,8 @@ Listing requests `limit=50`, the endpoint maximum, and follows the response
 pages -- the API's 10,000-playlist library cap divided by the page size --
 and exceeding the bound is an error, never a silent truncation, because a
 silently short list would later shuffle the wrong playlist. Full playlist
-objects are returned; the page reader consumes `id`, `name`, and
-`tracks.total`, skipping the null placeholders Spotify emits for items it
+objects are returned; the page reader consumes `id`, `name`, `tracks.total`,
+and `snapshot_id`, skipping the null placeholders Spotify emits for items it
 cannot expose.
 
 ## Track reading
@@ -57,6 +57,17 @@ Every track-read URL is constructed locally against the fixed API origin
 with the playlist id URI-encoded; track reading follows no server-supplied
 cursor at all, so the listing's cursor guard has no analogue here and the
 bearer token cannot be steered off-origin by a response.
+
+## Snapshot semantics
+
+`snapshot_id` is an opaque version stamp that changes on every playlist
+mutation, and Spotify offers no API returning the difference between two
+snapshots. Change detection therefore decomposes locally: snapshot equality
+proves a cached track list current at zero request cost -- the listing
+already delivers each playlist's `snapshot_id` -- and on inequality the
+only refresh is a URI-only re-read, after which the added and removed
+counts are computed locally by a multiset comparison (see the
+[data model](../browser/DATA_MODEL.md)).
 
 ## Failure posture
 

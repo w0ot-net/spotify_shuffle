@@ -50,16 +50,16 @@ test("playlistLabel pluralizes and omits unknown totals", () => {
 test("readPlaylistPage parses items and skips null placeholders", () => {
   assert.deepEqual(plain(TrueShuffle.readPlaylistPage({
     items: [
-      {id: "first", name: "Morning", tracks: {total: 3}},
+      {id: "first", name: "Morning", tracks: {total: 3}, snapshot_id: "snap-1"},
       null,
       {id: "", name: "unexposed"},
-      {id: "second", name: "", tracks: {total: "many"}},
-      {id: "third"}
+      {id: "second", name: "", tracks: {total: "many"}, snapshot_id: ""},
+      {id: "third", snapshot_id: 7}
     ]
   })), [
-    {id: "first", name: "Morning", total: 3},
-    {id: "second", name: "Untitled playlist", total: null},
-    {id: "third", name: "Untitled playlist", total: null}
+    {id: "first", name: "Morning", total: 3, snapshotId: "snap-1"},
+    {id: "second", name: "Untitled playlist", total: null, snapshotId: null},
+    {id: "third", name: "Untitled playlist", total: null, snapshotId: null}
   ]);
 });
 
@@ -184,6 +184,45 @@ test("assembleTrackPages fails a count short of the reported total", () => {
       TrueShuffle.PlaylistChangedError
     );
   }
+});
+
+test("validTrackCacheRecord requires the exact record shape", () => {
+  const valid = {
+    snapshot_id: "snap-1",
+    uris: ["spotify:track:a", "spotify:track:a"],
+    cached_at: now
+  };
+  assert.equal(TrueShuffle.validTrackCacheRecord(valid), true);
+  assert.equal(TrueShuffle.validTrackCacheRecord(
+    Object.assign({}, valid, {uris: []})), true);
+  assert.equal(TrueShuffle.validTrackCacheRecord(null), false);
+  assert.equal(TrueShuffle.validTrackCacheRecord(undefined), false);
+  assert.equal(TrueShuffle.validTrackCacheRecord("record"), false);
+  assert.equal(TrueShuffle.validTrackCacheRecord(
+    Object.assign({}, valid, {snapshot_id: ""})), false);
+  assert.equal(TrueShuffle.validTrackCacheRecord(
+    Object.assign({}, valid, {uris: "spotify:track:a"})), false);
+  assert.equal(TrueShuffle.validTrackCacheRecord(
+    Object.assign({}, valid, {uris: ["spotify:track:a", 7]})), false);
+  assert.equal(TrueShuffle.validTrackCacheRecord(
+    Object.assign({}, valid, {cached_at: Infinity})), false);
+  assert.equal(TrueShuffle.validTrackCacheRecord(
+    Object.assign({}, valid, {cached_at: "soon"})), false);
+});
+
+test("countTrackChanges counts a duplicate-aware multiset difference", () => {
+  const changes = (previous, current) => plain(TrueShuffle.countTrackChanges(previous, current));
+  assert.deepEqual(changes([], []), {added: 0, removed: 0});
+  assert.deepEqual(changes([], ["a", "b"]), {added: 2, removed: 0});
+  assert.deepEqual(changes(["a", "b"], []), {added: 0, removed: 2});
+  assert.deepEqual(changes(["a", "b"], ["b", "a"]), {added: 0, removed: 0},
+    "a reorder is not a membership change");
+  assert.deepEqual(changes(["a", "b"], ["a", "b", "c"]), {added: 1, removed: 0});
+  assert.deepEqual(changes(["a", "b", "c"], ["a", "c"]), {added: 0, removed: 1});
+  // Duplicates in both directions: the counts compare occurrences.
+  assert.deepEqual(changes(["a", "a", "b"], ["a", "b", "b"]), {added: 1, removed: 1});
+  assert.deepEqual(changes(["a"], ["a", "a", "a"]), {added: 2, removed: 0});
+  assert.deepEqual(changes(["a", "a", "a"], ["a"]), {added: 0, removed: 2});
 });
 
 test("validTokenRecord requires every field with its exact type", () => {

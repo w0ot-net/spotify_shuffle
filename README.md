@@ -25,7 +25,10 @@ can connect and disconnect Spotify in one browser, and lists the connected
 account's playlists so one can be selected. Selecting a playlist reads its
 ordered track URIs -- concurrently across pages, guarded by a snapshot check
 that fails the read if the playlist changes mid-flight -- and shows the track
-count. It does not yet cache track lists or modify any playlist.
+count. Track lists are cached in IndexedDB and validated with Spotify
+snapshots, so re-selecting an unchanged playlist issues no track requests,
+and a changed playlist is re-read and reports how many tracks were added and
+removed since the last read. It does not yet modify any playlist.
 
 The browser stores Spotify access and refresh tokens in `localStorage` under a
 versioned application key. The key retains the project's former
@@ -86,9 +89,9 @@ tokens, and `https://api.spotify.com` for Web API reads. Advertising,
 analytics, or other third-party JavaScript must use a separate origin and must
 not receive Spotify data.
 
-"Disconnect this browser" deletes the local token record. It does not revoke
-the authorization grant in Spotify; reconnecting or revoking the app through
-Spotify remains a separate action.
+"Disconnect this browser" deletes the local token record and the cached track
+lists. It does not revoke the authorization grant in Spotify; reconnecting or
+revoking the app through Spotify remains a separate action.
 
 ## Documentation
 

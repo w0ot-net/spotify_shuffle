@@ -46,6 +46,115 @@ class FakeStorage {
   }
 }
 
+// Fakes exactly the IndexedDB surface the app's wrapper touches: open with
+// upgrade, get, put, and database delete, delivering callbacks via deferred
+// microtasks so handler registration wins the race.
+class FakeIndexedDB {
+  constructor(options) {
+    options = options || {};
+    this.unavailable = options.unavailable || false;
+    this.deletedDatabases = [];
+    // database name -> store name -> Map(key -> value)
+    this.databases = new Map();
+    for (const [databaseName, stores] of Object.entries(options.seed || {})) {
+      const storeMap = new Map();
+      for (const [storeName, entries] of Object.entries(stores)) {
+        storeMap.set(storeName, new Map(Object.entries(entries)));
+      }
+      this.databases.set(databaseName, storeMap);
+    }
+  }
+
+  record(databaseName, storeName, key) {
+    const stores = this.databases.get(databaseName);
+    const store = stores && stores.get(storeName);
+    return store ? store.get(key) : undefined;
+  }
+
+  open(name, _version) {
+    const request = {onupgradeneeded: null, onsuccess: null, onerror: null, result: null, error: null};
+    Promise.resolve().then(() => {
+      if (this.unavailable) {
+        request.error = new Error("indexeddb unavailable");
+        if (request.onerror) {
+          request.onerror();
+        }
+        return;
+      }
+      const isNew = !this.databases.has(name);
+      if (isNew) {
+        this.databases.set(name, new Map());
+      }
+      request.result = new FakeIndexedDBDatabase(this.databases.get(name));
+      if (isNew && request.onupgradeneeded) {
+        request.onupgradeneeded();
+      }
+      if (request.onsuccess) {
+        request.onsuccess();
+      }
+    });
+    return request;
+  }
+
+  deleteDatabase(name) {
+    this.databases.delete(name);
+    this.deletedDatabases.push(name);
+    return {onsuccess: null, onerror: null};
+  }
+}
+
+class FakeIndexedDBDatabase {
+  constructor(stores) {
+    this.stores = stores;
+  }
+
+  createObjectStore(name) {
+    this.stores.set(name, new Map());
+  }
+
+  transaction(storeName, _mode) {
+    const store = this.stores.get(storeName);
+    const operations = [];
+    const transaction = {
+      oncomplete: null,
+      onerror: null,
+      onabort: null,
+      error: null,
+      objectStore(_name) {
+        return {
+          get(key) {
+            const request = {onsuccess: null, onerror: null, result: undefined, error: null};
+            operations.push(() => {
+              request.result = store.get(key);
+              if (request.onsuccess) {
+                request.onsuccess();
+              }
+            });
+            return request;
+          },
+          put(value, key) {
+            operations.push(() => {
+              store.set(key, value);
+            });
+            return {onsuccess: null, onerror: null};
+          }
+        };
+      }
+    };
+    Promise.resolve().then(() => {
+      for (const operation of operations) {
+        operation();
+      }
+      if (transaction.oncomplete) {
+        transaction.oncomplete();
+      }
+    });
+    return transaction;
+  }
+
+  close() {}
+}
+
 class FakeElement {
   constructor(hidden) {
     this.textContent = "";
@@ -198,6 +307,9 @@ function createHarness(options) {
     crypto: webcrypto,
     localStorage: localStorage,
     sessionStorage: sessionStorage,
+    // Left undefined unless a test supplies a fake: the app must degrade to
+    // uncached reads in a browser without usable IndexedDB.
+    indexedDB: options.indexedDB,
     location: location,
     history: {
       replaceState(_state, _title, nextPath) {
@@ -701,6 +813,187 @@ test("a failed track read leaves the listing and token intact", async () => {
   assert.equal(harness.playlistsElement.hidden, false);
   assert.equal(harness.statusElement.textContent, "Spotify is connected in this browser.");
   assert.equal(playlistButtons(harness)[0].disabled, false);
+});
+
+// Objects built inside the vm realm carry that realm's prototypes, which
+// strict deep equality rejects; compare plain content instead.
+function plain(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+test("re-selecting an unchanged playlist renders from cache with zero track requests", async () => {
+  const indexedDB = new FakeIndexedDB();
+  const harness = createHarness({
+    indexedDB: indexedDB,
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
+    playlistHandler: () => playlistPage([
+      {id: "steady", name: "Morning", tracks: {total: 2}, snapshot_id: "snap-1"}
+    ]),
+    trackHandler: steadyTrackHandler("steady", "snap-1", 100, ["spotify:track:a", "spotify:track:b"])
+  });
+
+  await settle();
+  playlistButtons(harness)[0].click();
+  await settle();
+
+  assert.equal(harness.trackStatusElement.textContent, "Loaded 2 tracks.");
+  const stored = indexedDB.record("trueshuffle", "playlists", "steady");
+  assert.equal(stored.snapshot_id, "snap-1");
+  assert.deepEqual(plain(stored.uris), ["spotify:track:a", "spotify:track:b"]);
+  assert.equal(typeof stored.cached_at, "number");
+
+  const readRequests = harness.requests.length;
+  playlistButtons(harness)[0].click();
+  await settle();
+
+  assert.equal(harness.requests.length, readRequests, "a cache hit issues zero requests");
+  assert.equal(harness.trackStatusElement.textContent, "Loaded 2 tracks.");
+  assert.equal(playlistButtons(harness)[0].disabled, false);
+});
+
+test("a snapshot mismatch re-reads, stores, and reports added and removed counts", async () => {
+  const indexedDB = new FakeIndexedDB({
+    seed: {
+      trueshuffle: {
+        playlists: {
+          changed: {
+            snapshot_id: "snap-old",
+            uris: ["spotify:track:a", "spotify:track:b", "spotify:track:b"],
+            cached_at: 1
+          }
+        }
+      }
+    }
+  });
+  const harness = createHarness({
+    indexedDB: indexedDB,
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
+    playlistHandler: () => playlistPage([
+      {id: "changed", name: "Morning", tracks: {total: 3}, snapshot_id: "snap-new"}
+    ]),
+    trackHandler: steadyTrackHandler("changed", "snap-new", 100,
+      ["spotify:track:b", "spotify:track:c", "spotify:track:c"])
+  });
+
+  await settle();
+  playlistButtons(harness)[0].click();
+  await settle();
+
+  assert.equal(
+    harness.trackStatusElement.textContent,
+    "Loaded 3 tracks. 2 added, 2 removed since last read."
+  );
+  const stored = indexedDB.record("trueshuffle", "playlists", "changed");
+  assert.equal(stored.snapshot_id, "snap-new");
+  assert.deepEqual(plain(stored.uris), ["spotify:track:b", "spotify:track:c", "spotify:track:c"]);
+});
+
+test("a membership-identical change renders the plain count", async () => {
+  const indexedDB = new FakeIndexedDB({
+    seed: {
+      trueshuffle: {
+        playlists: {
+          reordered: {
+            snapshot_id: "snap-old",
+            uris: ["spotify:track:a", "spotify:track:b"],
+            cached_at: 1
+          }
+        }
+      }
+    }
+  });
+  const harness = createHarness({
+    indexedDB: indexedDB,
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
+    playlistHandler: () => playlistPage([
+      {id: "reordered", name: "Morning", tracks: {total: 2}, snapshot_id: "snap-new"}
+    ]),
+    trackHandler: steadyTrackHandler("reordered", "snap-new", 100,
+      ["spotify:track:b", "spotify:track:a"])
+  });
+
+  await settle();
+  playlistButtons(harness)[0].click();
+  await settle();
+
+  assert.equal(harness.trackStatusElement.textContent, "Loaded 2 tracks.");
+});
+
+test("an unavailable cache degrades to an uncached read", async () => {
+  const harness = createHarness({
+    indexedDB: new FakeIndexedDB({unavailable: true}),
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
+    playlistHandler: () => playlistPage([
+      {id: "nocache", name: "Morning", tracks: {total: 1}, snapshot_id: "snap-1"}
+    ]),
+    trackHandler: steadyTrackHandler("nocache", "snap-1", 100, ["spotify:track:a"])
+  });
+
+  await settle();
+  playlistButtons(harness)[0].click();
+  await settle();
+
+  assert.equal(harness.trackStatusElement.textContent, "Loaded 1 track.");
+  assert.equal(playlistButtons(harness)[0].disabled, false);
+});
+
+test("a failed re-read preserves the previous cache record", async () => {
+  const indexedDB = new FakeIndexedDB({
+    seed: {
+      trueshuffle: {
+        playlists: {
+          kept: {snapshot_id: "snap-old", uris: ["spotify:track:a"], cached_at: 1}
+        }
+      }
+    }
+  });
+  const harness = createHarness({
+    indexedDB: indexedDB,
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
+    playlistHandler: () => playlistPage([
+      {id: "kept", name: "Morning", tracks: {total: 1}, snapshot_id: "snap-new"}
+    ]),
+    trackHandler: () => jsonResponse(500, {error: {status: 500}})
+  });
+
+  await settle();
+  playlistButtons(harness)[0].click();
+  await settle();
+
+  assert.equal(
+    harness.trackStatusElement.textContent,
+    "Tracks could not be loaded. Select the playlist again to retry."
+  );
+  assert.deepEqual(plain(indexedDB.record("trueshuffle", "playlists", "kept")), {
+    snapshot_id: "snap-old",
+    uris: ["spotify:track:a"],
+    cached_at: 1
+  });
+});
+
+test("disconnecting deletes the track cache database", async () => {
+  const indexedDB = new FakeIndexedDB({
+    seed: {
+      trueshuffle: {
+        playlists: {
+          gone: {snapshot_id: "snap-1", uris: ["spotify:track:a"], cached_at: 1}
+        }
+      }
+    }
+  });
+  const harness = createHarness({
+    indexedDB: indexedDB,
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
+    playlistHandler: () => playlistPage([
+      {id: "gone", name: "Morning", tracks: {total: 1}, snapshot_id: "snap-1"}
+    ])
+  });
+
+  await settle();
+  harness.logoutButton.click();
+
+  assert.deepEqual(indexedDB.deletedDatabases, ["trueshuffle"]);
+  assert.equal(indexedDB.databases.has("trueshuffle"), false);
 });
 
 test("disconnecting during a track read renders nothing afterward", async () => {

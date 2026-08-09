@@ -17,8 +17,8 @@ classic scripts with `defer`, in order:
 1. `web/pure.js` defines a single `TrueShuffle` global containing the
    browser-independent value logic and error types: token-record building and
    validation, playlist- and track-page parsing, track URL construction and
-   offset computation, track-page assembly, label formatting, and the
-   paging-cursor check.
+   offset computation, track-page assembly, cache-record validation, the
+   multiset track difference, label formatting, and the paging-cursor check.
 2. `web/app.js` is the platform adapter. It reads `TrueShuffle` while
    loading, owns every `document`, `fetch`, storage, crypto, and history
    interaction, and wires the value logic to the page.
@@ -57,14 +57,17 @@ The page-state vocabulary the lifecycle renders:
   status line.
 
 Selecting a playlist records `{id, name}` in module-scope page state, marks
-the chosen button with `aria-pressed`, and reads the playlist's ordered
-track URIs through the protocol the
-[Spotify integration](../integration/SPOTIFY_INTEGRATION.md) page owns. The
-playlist buttons are disabled until the read settles, so one load runs at a
-time without cancellation machinery; re-selecting a playlist re-reads it. A
-verified read lands in module-scope `loadedTracks` --
-`{id, snapshotId, uris}` -- which persists nowhere and is the attachment
-point for caching and shuffle generation (planned). A failed read clears
-`loadedTracks`, renders the failure in the track status line, and leaves
-the listing, selection, and stored token untouched; a late result from a
-read that outlives its page state -- disconnecting mid-read -- is dropped.
+the chosen button with `aria-pressed`, and loads the playlist's ordered
+track URIs cache-first: a cached record whose snapshot matches the
+listing's renders with zero track requests, and otherwise the read protocol
+the [Spotify integration](../integration/SPOTIFY_INTEGRATION.md) page owns
+runs and its verified result is stored (see the
+[data model](DATA_MODEL.md)). When a re-read replaces a cached record, the
+membership difference renders as added and removed counts. The playlist
+buttons are disabled until the load settles, so one load runs at a time
+without cancellation machinery. Either path lands the list in module-scope
+`loadedTracks` -- `{id, snapshotId, uris}` -- the attachment point for
+shuffle generation (planned). A failed read clears `loadedTracks`, renders
+the failure in the track status line, and leaves the listing, selection,
+and stored token untouched; a late result from a read that outlives its
+page state -- disconnecting mid-read -- is dropped.

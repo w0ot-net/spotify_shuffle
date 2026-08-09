@@ -19,6 +19,7 @@ do not replace the user or contributor documentation.
 - [Service model](architecture/service/SERVICE_MODEL.md)
 - [Application model](architecture/browser/APPLICATION_MODEL.md)
 - [Authorization model](architecture/browser/AUTHORIZATION_MODEL.md)
+- [Data model](architecture/browser/DATA_MODEL.md)
 - [Security model](architecture/security/SECURITY_MODEL.md)
 - [Spotify integration](architecture/integration/SPOTIFY_INTEGRATION.md)
 - [Testing model](architecture/testing/TESTING_MODEL.md)

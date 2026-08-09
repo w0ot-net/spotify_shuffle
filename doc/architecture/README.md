@@ -44,12 +44,14 @@ its public configuration.
    browser structure and lifecycle.
 3. [Authorization model](browser/AUTHORIZATION_MODEL.md) for PKCE, token
    storage, and failure classification.
-4. [Security model](security/SECURITY_MODEL.md) for the CSP and the rules
+4. [Data model](browser/DATA_MODEL.md) for the track cache and its
+   snapshot-equality validity rule.
+5. [Security model](security/SECURITY_MODEL.md) for the CSP and the rules
    that confine Spotify data.
-5. [Spotify integration](integration/SPOTIFY_INTEGRATION.md) for the
+6. [Spotify integration](integration/SPOTIFY_INTEGRATION.md) for the
    endpoints, paging bounds, and scopes.
-6. [Testing model](testing/TESTING_MODEL.md) for the layered test strategy.
-7. [Deployment model](deployment/DEPLOYMENT_MODEL.md) for the production
+7. [Testing model](testing/TESTING_MODEL.md) for the layered test strategy.
+8. [Deployment model](deployment/DEPLOYMENT_MODEL.md) for the production
    layout and release identity.
 
 The broader [documentation map](../README.md) routes every kind of

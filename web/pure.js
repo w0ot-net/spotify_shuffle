@@ -76,7 +76,10 @@ var TrueShuffle = (function () {
       playlists.push({
         id: item.id,
         name: typeof item.name === "string" && item.name !== "" ? item.name : "Untitled playlist",
-        total: item.tracks && Number.isFinite(item.tracks.total) ? item.tracks.total : null
+        total: item.tracks && Number.isFinite(item.tracks.total) ? item.tracks.total : null,
+        // The listing's version stamp is what selection compares against the
+        // track cache, so a hit needs no extra request.
+        snapshotId: typeof item.snapshot_id === "string" && item.snapshot_id !== "" ? item.snapshot_id : null
       });
     }
     return playlists;
@@ -135,6 +138,39 @@ var TrueShuffle = (function () {
     return offsets;
   }
 
+  function validTrackCacheRecord(value) {
+    return value !== null &&
+      typeof value === "object" &&
+      typeof value.snapshot_id === "string" && value.snapshot_id !== "" &&
+      Array.isArray(value.uris) &&
+      value.uris.every(function (uri) { return typeof uri === "string"; }) &&
+      typeof value.cached_at === "number" && Number.isFinite(value.cached_at);
+  }
+
+  // Playlists may contain the same URI more than once, so the difference is
+  // a multiset count: added is the surplus in the new list, removed the
+  // surplus in the old. A reorder is zero/zero.
+  function countTrackChanges(previousUris, currentUris) {
+    const surplus = new Map();
+    for (const uri of previousUris) {
+      surplus.set(uri, (surplus.get(uri) || 0) + 1);
+    }
+    let added = 0;
+    for (const uri of currentUris) {
+      const remaining = surplus.get(uri) || 0;
+      if (remaining > 0) {
+        surplus.set(uri, remaining - 1);
+      } else {
+        added += 1;
+      }
+    }
+    let removed = 0;
+    for (const remaining of surplus.values()) {
+      removed += remaining;
+    }
+    return {added: added, removed: removed};
+  }
+
   function assembleTrackPages(pages, total) {
     // Sorting by offset makes assembly independent of completion order.
     const ordered = pages.slice().sort((a, b) => a.offset - b.offset);
@@ -156,6 +192,7 @@ var TrueShuffle = (function () {
     TokenRejectedError: TokenRejectedError,
     assembleTrackPages: assembleTrackPages,
     buildTokenRecord: buildTokenRecord,
+    countTrackChanges: countTrackChanges,
     playlistLabel: playlistLabel,
     playlistSnapshotURL: playlistSnapshotURL,
     playlistsEndpoint: playlistsEndpoint,
@@ -165,6 +202,7 @@ var TrueShuffle = (function () {
     remainingTrackOffsets: remainingTrackOffsets,
     trackPageURL: trackPageURL,
     validPlaylistCursor: validPlaylistCursor,
-    validTokenRecord: validTokenRecord
+    validTokenRecord: validTokenRecord,
+    validTrackCacheRecord: validTrackCacheRecord
   };
 }());
