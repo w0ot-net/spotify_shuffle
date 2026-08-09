@@ -266,19 +266,31 @@
     }
     const response = await window.fetch(url, options);
     if (!response.ok) {
-      throw new TrueShuffle.SpotifyRequestError(response.status, new URL(url).pathname);
+      let detail = "";
+      try {
+        const payload = await response.json();
+        if (payload && payload.error && typeof payload.error.message === "string") {
+          detail = payload.error.message;
+        }
+      } catch (_) {
+        // A non-JSON error body adds nothing beyond the status.
+      }
+      throw new TrueShuffle.SpotifyRequestError(response.status, new URL(url).pathname, detail);
     }
     return response.json();
   }
 
   // Fail-fast stays, but blind messages cost live diagnosis time twice;
-  // name the status and the refused endpoint when Spotify supplied them.
+  // name the status, the refused endpoint, and Spotify's own words when
+  // supplied. The detail is third-party text and only ever rendered
+  // through textContent.
   function failureDetail(error) {
     if (!(error instanceof TrueShuffle.SpotifyRequestError)) {
       return "";
     }
     return " (Spotify returned " + error.status +
-      (error.path !== "" ? " at " + error.path : "") + ")";
+      (error.path !== "" ? " at " + error.path : "") +
+      (error.detail !== "" ? ": " + error.detail : "") + ")";
   }
 
   async function fetchPlaylists(token) {

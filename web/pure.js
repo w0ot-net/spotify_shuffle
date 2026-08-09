@@ -22,14 +22,17 @@ var TrueShuffle = (function () {
   class TokenRejectedError extends Error {}
   class AuthorizationRevokedError extends TokenRejectedError {}
   class PlaylistChangedError extends Error {}
-  // A non-OK Web API response; carries the status and request path so
-  // failure messages can name what Spotify refused and where.
+  // A non-OK Web API response; carries the status, request path, and
+  // Spotify's own error message so failure messages can name what was
+  // refused, where, and in Spotify's words.
   class SpotifyRequestError extends Error {
-    constructor(status, path) {
+    constructor(status, path, detail) {
       super("Spotify request failed with status " + status +
-        (typeof path === "string" && path !== "" ? " at " + path : ""));
+        (typeof path === "string" && path !== "" ? " at " + path : "") +
+        (typeof detail === "string" && detail !== "" ? ": " + detail : ""));
       this.status = status;
       this.path = typeof path === "string" ? path : "";
+      this.detail = typeof detail === "string" ? detail : "";
     }
   }
 

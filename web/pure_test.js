@@ -452,14 +452,19 @@ test("shuffleResultMessage distinguishes created from updated", () => {
   );
 });
 
-test("SpotifyRequestError carries the response status and path", () => {
-  const error = new TrueShuffle.SpotifyRequestError(403, "/v1/me");
+test("SpotifyRequestError carries the status, path, and Spotify's message", () => {
+  const error = new TrueShuffle.SpotifyRequestError(403, "/v1/me", "Insufficient client scope");
   assert.equal(error.status, 403);
   assert.equal(error.path, "/v1/me");
-  assert.equal(error.message, "Spotify request failed with status 403 at /v1/me");
-  const pathless = new TrueShuffle.SpotifyRequestError(429);
-  assert.equal(pathless.path, "");
-  assert.equal(pathless.message, "Spotify request failed with status 429");
+  assert.equal(error.detail, "Insufficient client scope");
+  assert.equal(
+    error.message,
+    "Spotify request failed with status 403 at /v1/me: Insufficient client scope"
+  );
+  const bare = new TrueShuffle.SpotifyRequestError(429);
+  assert.equal(bare.path, "");
+  assert.equal(bare.detail, "");
+  assert.equal(bare.message, "Spotify request failed with status 429");
   assert.equal(
     error instanceof TrueShuffle.PlaylistChangedError, false,
     "status failures must not render as changed-while-loading"

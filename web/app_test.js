@@ -468,6 +468,17 @@ async function settle(rounds) {
   }
 }
 
+// Authorization flows await a real subtle-crypto digest whose timing varies
+// under load; wait on the observable outcome instead of a fixed round count.
+async function settleUntil(condition) {
+  for (let index = 0; index < 400; index += 1) {
+    if (condition()) {
+      return;
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}
+
 const temporaryRefreshCases = [
   {
     name: "429 response",
@@ -1152,7 +1163,7 @@ test("connect recovers from a partial pending authorization write", async () => 
   assert.equal(harness.connectButton.hidden, false);
 
   harness.connectButton.click();
-  await settle(40);
+  await settleUntil(() => harness.statusElement.textContent === "Spotify authorization could not be started.");
 
   assert.equal(harness.location.assigned, null);
   assert.equal(sessionStorage.getItem(stateStorageKey), null);
@@ -1174,7 +1185,7 @@ test("a token without the library scope shows the reconnect row", async () => {
   assert.equal(buttons[1].textContent, "Morning (1 track)");
 
   buttons[0].click();
-  await settle(40);
+  await settleUntil(() => harness.location.assigned !== null);
 
   assert.ok(harness.location.assigned, "the liked row starts the authorization flow");
   assert.ok(
@@ -1309,7 +1320,7 @@ test("a mid-write failure names the possibly partial target", async () => {
   options.trackHandler = (url, requestOptions) => {
     if (url === "https://api.spotify.com/v1/playlists/target-1/tracks" &&
         backend.writes.length === 1) {
-      return jsonResponse(500, {error: {status: 500}});
+      return jsonResponse(500, {error: {status: 500, message: "Server error"}});
     }
     return workingTrackHandler(url, requestOptions);
   };
@@ -1321,7 +1332,7 @@ test("a mid-write failure names the possibly partial target", async () => {
 
   assert.match(
     harness.trackStatusElement.textContent,
-    /^"Liked Songs TrueShuffle" may be incomplete \(Spotify returned 500 at \/v1\/playlists\/target-1\/tracks\)\. Shuffle again to rewrite it\.$/
+    /^"Liked Songs TrueShuffle" may be incomplete \(Spotify returned 500 at \/v1\/playlists\/target-1\/tracks: Server error\)\. Shuffle again to rewrite it\.$/
   );
   assert.equal(harness.trackProgressElement.hidden, true);
 });
