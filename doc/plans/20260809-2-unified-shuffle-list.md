@@ -33,6 +33,10 @@ In scope:
   Liked Songs row is always first, so a playlist named "Liked Songs" is
   shadowed by it. The full listing stays retained for the write flow's
   target lookup.
+- When deduplication hides at least one playlist, render a one-line note
+  counting the hidden duplicates and saying renaming them in Spotify
+  makes them shuffleable. Derived-playlist hiding gets no note, and no
+  note renders when nothing is shadowed.
 - One click on any row runs load, shuffle, and create-or-overwrite as a
   single sequence, reusing the existing cache-first playlist load, the
   Liked Songs library read, and the derived-target write flow; a source
@@ -80,7 +84,12 @@ duplicate target, so both filters live at render time and nowhere else.
 makes name-keyed targets injective from the visible list: no two
 clickable rows can share a derived target, which retires the
 shared-target surprise duplicate names would otherwise cause. A shadowed
-duplicate is unshuffleable until renamed in Spotify, an accepted cost.
+duplicate is unshuffleable until renamed in Spotify, an accepted cost --
+but not a silent one. Dropping rows without saying so would be the
+listing's version of silent truncation, which this repository treats as
+an error elsewhere; the renderer therefore reports the shadowed count in
+a single conditional line, while the routine hiding of derived targets
+stays unannounced because the user watches those get created.
 
 **One in-flight operation, one progress element.** The existing
 action-button gate carries over: every row disables while a click's
@@ -111,8 +120,9 @@ shares.
   buttons.
 - `main_test.go`: page markers for the removed liked elements.
 - `web/pure_test.js`: filter cases -- derived names hidden, near-miss
-  names kept, duplicate names reduced to the first instance, a "Liked
-  Songs" playlist shadowed by the liked row -- and label cases.
+  names kept, duplicate names reduced to the first instance with the
+  shadowed count reported, a "Liked Songs" playlist shadowed by the liked
+  row -- and label and shadowed-note message cases.
 - `web/app_test.js`: one click on a playlist row runs read, shuffle, and
   write in order; one click on the liked row does the same through the
   library read; a cache hit skips straight to the write; derived rows are
@@ -166,7 +176,8 @@ reconnect row -- follows explicit user direction, per `AGENTS.md`.
 
 - The page shows exactly one list: Liked Songs first, non-derived
   playlists after it, derived playlists nowhere, and no two rows sharing
-  a name.
+  a name; a note counting shadowed duplicates appears exactly when
+  deduplication hid something.
 - One click on any row ends with "Created" or "Updated"
   `"<name> TrueShuffle"` and the count, with progress visible during the
   read and the write; a second click on the same row re-shuffles the same
