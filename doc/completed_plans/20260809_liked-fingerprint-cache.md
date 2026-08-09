@@ -172,3 +172,36 @@ shuffle that re-reads -- follows explicit user direction per `AGENTS.md`.
   assertions.
 - The data-model, integration, and application-model pages and the README
   describe the fingerprint rule and its ordering caveat.
+
+## Execution Notes
+
+Executed 2026-08-09. Implementation commit `16dc211`.
+
+Implemented as planned: `validLikedCacheRecord` and `likedRecordMatches`
+in `web/pure.js`; `readTrackCache` takes its validator as an argument
+(the playlist call site passes `validTrackCacheRecord`);
+`readLikedTracks` accepts the caller-fetched page 0 and its closing probe
+verifies the full fingerprint instead of the total alone;
+`loadLikedSource` is cache-first under the `liked-songs` sentinel key and
+stores `{total, head, uris, cached_at}` only after the verified read.
+Re-read differences render through the existing multiset comparison.
+
+Deviations: none. The cold-path request-sequence tests needed no edits
+because they run without a fake IndexedDB, which the degrade posture
+treats as a permanent miss.
+
+Validation, all passing: `gofmt -l main.go main_test.go` (no output),
+`go test ./...`, `go vet ./...`, `node --check` on both web scripts,
+`node --test web/pure_test.js web/app_test.js` (84 pass, 0 fail, seven
+new cases), `git diff --check`, and the inverted purity grep.
+
+Success criteria are covered by the new harness cases: the one-request
+warm path and the same-page-load round trip, the count-neutral
+invalidation with reported counts, the steady-total mid-read drift
+failure, and the unavailable-cache degrade; disconnect deletion was
+already proven by the existing database-deletion case.
+
+The pending rate-limit plans (`20260809-01`, `20260809-02`) are
+untouched; request control's in-tab loaded-source reuse composes in front
+of this cache when it lands. Live validation of the warm path against a
+real account remains gated on explicit user direction.
