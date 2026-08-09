@@ -8,6 +8,7 @@ const vm = require("node:vm");
 const {webcrypto} = require("node:crypto");
 const {TextEncoder} = require("node:util");
 
+const pureSource = fs.readFileSync(path.join(__dirname, "pure.js"), "utf8");
 const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
 const tokenStorageKey = "spotify_shuffle.oauth.v1";
 const stateStorageKey = "spotify_shuffle.oauth.state.v1";
@@ -194,6 +195,8 @@ function createHarness(options) {
     window: window
   });
 
+  // Match the served page: pure.js defines the TrueShuffle global app.js reads.
+  vm.runInContext(pureSource, context, {filename: "web/pure.js"});
   vm.runInContext(appSource, context, {filename: "web/app.js"});
   return {
     connectButton: connectButton,
@@ -407,16 +410,25 @@ test("a failed playlist listing retains authorization", async () => {
 });
 
 test("a playlist page cursor off the Spotify API origin is rejected", async () => {
+  const attackerCursor = "https://attacker.example/v1/me/playlists?offset=50";
   const harness = createHarness({
     localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())}),
     playlistHandler: () => playlistPage(
       [{id: "first", name: "Morning", tracks: {total: 1}}],
-      "https://attacker.example/v1/me/playlists?offset=50"
+      attackerCursor
     )
   });
 
   await settle();
 
+  // The point of the guard is that the bearer token never leaves the Spotify
+  // API origin, so the load-bearing assertion is that no request was issued
+  // to the cursor at all; the failure UI alone also appears when the fake
+  // fetch rejects an unguarded request, which would hide a deleted guard.
+  assert.ok(
+    harness.requests.every((request) => request.url !== attackerCursor),
+    "a request was issued to the off-origin cursor"
+  );
   assert.equal(
     harness.playlistStatusElement.textContent,
     "Playlists could not be loaded. Reload to try again."

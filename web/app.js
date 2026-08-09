@@ -1,9 +1,9 @@
 (function () {
   "use strict";
 
+  const {AuthorizationRevokedError, TokenRejectedError, playlistsEndpoint} = TrueShuffle;
   const authorizeEndpoint = "https://accounts.spotify.com/authorize";
   const tokenEndpoint = "https://accounts.spotify.com/api/token";
-  const playlistsEndpoint = "https://api.spotify.com/v1/me/playlists";
   // Spotify caps a page at 50 items and a library at 10,000 playlists.
   const playlistPageLimit = 50;
   const maxPlaylistPages = 200;
@@ -25,9 +25,6 @@
   const playlistsElement = document.getElementById("playlists");
   let publicConfig = null;
   let selectedPlaylist = null;
-
-  class TokenRejectedError extends Error {}
-  class AuthorizationRevokedError extends TokenRejectedError {}
 
   function renderWorking(message) {
     statusElement.textContent = message;
@@ -141,16 +138,6 @@
     }
   }
 
-  function validTokenRecord(value) {
-    return value !== null &&
-      typeof value === "object" &&
-      typeof value.access_token === "string" && value.access_token !== "" &&
-      typeof value.refresh_token === "string" && value.refresh_token !== "" &&
-      typeof value.token_type === "string" && value.token_type !== "" &&
-      typeof value.scope === "string" &&
-      typeof value.expires_at === "number" && Number.isFinite(value.expires_at);
-  }
-
   function readStoredToken() {
     let raw;
     try {
@@ -164,7 +151,7 @@
 
     try {
       const token = JSON.parse(raw);
-      if (validTokenRecord(token)) {
+      if (TrueShuffle.validTokenRecord(token)) {
         return token;
       }
     } catch (_) {
@@ -175,32 +162,7 @@
   }
 
   function storeTokenResponse(payload, previousToken) {
-    const refreshToken = typeof payload.refresh_token === "string" && payload.refresh_token !== ""
-      ? payload.refresh_token
-      : previousToken && previousToken.refresh_token;
-    const scope = typeof payload.scope === "string"
-      ? payload.scope
-      : previousToken && previousToken.scope;
-    const tokenType = typeof payload.token_type === "string" && payload.token_type !== ""
-      ? payload.token_type
-      : previousToken && previousToken.token_type;
-
-    if (typeof payload.access_token !== "string" || payload.access_token === "" ||
-        typeof refreshToken !== "string" || refreshToken === "" ||
-        typeof scope !== "string" ||
-        typeof tokenType !== "string" || tokenType === "" ||
-        typeof payload.expires_in !== "number" || !Number.isFinite(payload.expires_in) ||
-        payload.expires_in <= 0) {
-      throw new TokenRejectedError("Spotify returned an invalid token response");
-    }
-
-    const token = {
-      access_token: payload.access_token,
-      refresh_token: refreshToken,
-      token_type: tokenType,
-      scope: scope,
-      expires_at: Date.now() + (payload.expires_in * 1000)
-    };
+    const token = TrueShuffle.buildTokenRecord(payload, previousToken, Date.now());
     window.localStorage.setItem(tokenStorageKey, JSON.stringify(token));
     return token;
   }
@@ -249,31 +211,6 @@
     playlistStatusElement.hidden = true;
   }
 
-  function playlistLabel(playlist) {
-    if (playlist.total === null) {
-      return playlist.name;
-    }
-    return playlist.name + " (" + playlist.total +
-      (playlist.total === 1 ? " track)" : " tracks)");
-  }
-
-  function readPlaylistPage(payload, playlists) {
-    if (!payload || !Array.isArray(payload.items)) {
-      throw new Error("Spotify returned an invalid playlist page");
-    }
-    for (const item of payload.items) {
-      // Spotify can include null placeholders for items it cannot expose.
-      if (!item || typeof item.id !== "string" || item.id === "") {
-        continue;
-      }
-      playlists.push({
-        id: item.id,
-        name: typeof item.name === "string" && item.name !== "" ? item.name : "Untitled playlist",
-        total: item.tracks && Number.isFinite(item.tracks.total) ? item.tracks.total : null
-      });
-    }
-  }
-
   async function requestPlaylistPage(token, url) {
     const response = await window.fetch(url, {
       headers: {Authorization: token.token_type + " " + token.access_token}
@@ -289,12 +226,12 @@
     let url = playlistsEndpoint + "?limit=" + playlistPageLimit;
     for (let page = 0; page < maxPlaylistPages; page += 1) {
       const payload = await requestPlaylistPage(token, url);
-      readPlaylistPage(payload, playlists);
+      playlists.push(...TrueShuffle.readPlaylistPage(payload));
       if (typeof payload.next !== "string" || payload.next === "") {
         return playlists;
       }
       // The bearer token must never follow a cursor off the Spotify API origin.
-      if (!payload.next.startsWith(playlistsEndpoint + "?")) {
+      if (!TrueShuffle.validPlaylistCursor(payload.next)) {
         throw new Error("Spotify returned an unexpected playlist page cursor");
       }
       url = payload.next;
@@ -317,7 +254,7 @@
       const button = document.createElement("button");
       button.type = "button";
       // Playlist names are third-party text and must never become markup.
-      button.textContent = playlistLabel(playlist);
+      button.textContent = TrueShuffle.playlistLabel(playlist);
       button.setAttribute("aria-pressed", "false");
       button.addEventListener("click", function () {
         selectPlaylist(playlist, button);

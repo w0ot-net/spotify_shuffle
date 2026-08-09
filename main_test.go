@@ -49,11 +49,18 @@ func TestAppPage(t *testing.T) {
 				`id="connect"`,
 				`id="logout"`,
 				`id="playlists"`,
-				`<script src="/app.js" defer></script>`,
 			} {
 				if !strings.Contains(recorder.Body.String(), marker) {
 					t.Errorf("body does not contain %q", marker)
 				}
+			}
+			// app.js reads the TrueShuffle global while loading, so pure.js
+			// must be present and loaded first; both tags existing in the
+			// wrong order would pass a containment-only check.
+			pureIndex := strings.Index(recorder.Body.String(), `<script src="/pure.js" defer></script>`)
+			appIndex := strings.Index(recorder.Body.String(), `<script src="/app.js" defer></script>`)
+			if pureIndex == -1 || appIndex == -1 || pureIndex > appIndex {
+				t.Errorf("script tags out of order: pure.js index = %d, app.js index = %d", pureIndex, appIndex)
 			}
 			if strings.Contains(recorder.Body.String(), "<script>") {
 				t.Error("body contains an inline script")
@@ -63,26 +70,36 @@ func TestAppPage(t *testing.T) {
 }
 
 func TestAppJavaScript(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/app.js", nil)
-	recorder := httptest.NewRecorder()
-
-	testHandler(t).ServeHTTP(recorder, req)
-
-	if got, want := recorder.Code, http.StatusOK; got != want {
-		t.Fatalf("status code = %d, want %d", got, want)
-	}
-	if got, want := recorder.Header().Get("Content-Type"), "text/javascript; charset=utf-8"; got != want {
-		t.Errorf("Content-Type = %q, want %q", got, want)
-	}
-	assertBrowserSecurityHeaders(t, recorder.Header())
-	for _, marker := range []string{
-		"spotify_shuffle.oauth.v1",
-		"code_challenge_method",
-		"https://accounts.spotify.com/api/token",
+	for path, markers := range map[string][]string{
+		"/pure.js": {
+			"var TrueShuffle",
+			"https://api.spotify.com/v1/me/playlists",
+		},
+		"/app.js": {
+			"spotify_shuffle.oauth.v1",
+			"code_challenge_method",
+			"https://accounts.spotify.com/api/token",
+		},
 	} {
-		if !strings.Contains(recorder.Body.String(), marker) {
-			t.Errorf("body does not contain %q", marker)
-		}
+		t.Run(path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			recorder := httptest.NewRecorder()
+
+			testHandler(t).ServeHTTP(recorder, req)
+
+			if got, want := recorder.Code, http.StatusOK; got != want {
+				t.Fatalf("status code = %d, want %d", got, want)
+			}
+			if got, want := recorder.Header().Get("Content-Type"), "text/javascript; charset=utf-8"; got != want {
+				t.Errorf("Content-Type = %q, want %q", got, want)
+			}
+			assertBrowserSecurityHeaders(t, recorder.Header())
+			for _, marker := range markers {
+				if !strings.Contains(recorder.Body.String(), marker) {
+					t.Errorf("body does not contain %q", marker)
+				}
+			}
+		})
 	}
 }
 
@@ -115,7 +132,7 @@ func TestPublicConfig(t *testing.T) {
 }
 
 func TestAppRoutesAreExact(t *testing.T) {
-	for _, path := range []string{"/callback/", "/app.js/", "/api/config/"} {
+	for _, path := range []string{"/callback/", "/pure.js/", "/app.js/", "/api/config/"} {
 		t.Run(path, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, path, nil)
 			recorder := httptest.NewRecorder()

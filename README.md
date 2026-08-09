@@ -100,5 +100,5 @@ Run the browser authentication and playlist tests with Node.js 18 or later.
 They use only Node's built-in test modules and require no package installation:
 
 ```sh
-node --test web/app_test.js
+node --test web/pure_test.js web/app_test.js
 ```

@@ -16,6 +16,9 @@ const contentSecurityPolicy = "default-src 'none'; script-src 'self'; connect-sr
 //go:embed web/index.html
 var indexHTML []byte
 
+//go:embed web/pure.js
+var pureJS []byte
+
 //go:embed web/app.js
 var appJS []byte
 
@@ -48,14 +51,18 @@ func newHandler(spotifyClientID string) (http.Handler, error) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(indexHTML)
 	}
+	serveScript := func(script []byte) http.HandlerFunc {
+		return func(w http.ResponseWriter, _ *http.Request) {
+			setBrowserSecurityHeaders(w)
+			w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(script)
+		}
+	}
 	mux.HandleFunc("GET /{$}", serveApp)
 	mux.HandleFunc("GET /callback", serveApp)
-	mux.HandleFunc("GET /app.js", func(w http.ResponseWriter, _ *http.Request) {
-		setBrowserSecurityHeaders(w)
-		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(appJS)
-	})
+	mux.HandleFunc("GET /pure.js", serveScript(pureJS))
+	mux.HandleFunc("GET /app.js", serveScript(appJS))
 	mux.HandleFunc("GET /api/config", func(w http.ResponseWriter, _ *http.Request) {
 		setBrowserSecurityHeaders(w)
 		w.Header().Set("Cache-Control", "no-store")
