@@ -82,6 +82,13 @@ can build a verified commit into another release directory and atomically
 replace `current`; no manifest or separately maintained deployed-version file
 is introduced.
 
+The deployed revision is defined by the release-directory name and the
+binary's embedded `vcs.revision`, which must agree exactly. The clean production
+checkout may be ahead of that revision after documentation-only commits; in
+that case the deployed revision must remain an ancestor of the checkout. This
+keeps documentation synchronization independent from executable identity and
+does not require no-op rebuilds.
+
 The main systemd unit remains at
 `/etc/systemd/system/trueshuffle.service`, because systemd owns unit discovery
 and boot enablement. It directly declares both
@@ -147,7 +154,9 @@ changes are expected.
 7. Update the active OAuth hardening plan with the final checkout, release,
    environment, and unit paths. Commit and push only the plan-document changes;
    then fast-forward `/opt/trueshuffle/repo` so the production checkout remains
-   clean and synchronized without rebuilding the already verified binary.
+   clean and synchronized without rebuilding the already verified binary. The
+   commit-addressed release, not the newer documentation-only checkout HEAD,
+   remains the deployed revision.
 8. Remove disposable migration and rollback material after all filesystem,
    service, Git, and HTTP checks pass.
 
@@ -160,8 +169,9 @@ changes are expected.
   works in its final location.
 - Compare the pre-migration executable checksum with
   `/opt/trueshuffle/releases/<revision>/trueshuffle` and inspect it with
-  `file` and `go version -m`; require the checkout revision and
-  `vcs.modified=false`.
+  `file` and `go version -m`; require the release-directory name to equal the
+  embedded revision, require `vcs.modified=false`, and require that revision to
+  be an ancestor of the clean production checkout.
 - Resolve `/opt/trueshuffle/current` and require it to target exactly the
   verified release directory within `/opt/trueshuffle/releases`.
 - Inspect ownership and modes for the top-level tree, repository, release,
@@ -196,8 +206,9 @@ is required for this filesystem-only migration.
   and journal assets remain with their owning services.
 - `trueshuffle.service` is enabled, active, stable, and uses the consolidated
   executable and environment paths under its existing dynamic-user model.
-- The deployed binary checksum and embedded Git revision match the verified
-  clean checkout, and `current` resolves only within the releases tree.
+- The deployed binary's embedded Git revision matches its release-directory
+  name, is an ancestor of the verified clean checkout, and `current` resolves
+  only within the releases tree.
 - Loopback and public health checks pass without changing the hostname,
   callback, Apache, TLS, OAuth, or application behavior.
 - The former split paths and systemd drop-in are absent, with no compatibility
