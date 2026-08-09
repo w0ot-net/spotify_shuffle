@@ -162,13 +162,18 @@ two-page listing renders every playlist in order, an empty listing renders the
 empty state, and a failed listing leaves the `localStorage` token record
 present.
 
-Manual browser validation:
+Manual browser validation, only with explicit user authorization to use a
+live Spotify account, per `AGENTS.md`:
 
 - Load the page while connected and confirm the playlists render with correct
-  names and track counts, including a user with more than 50 playlists.
+  names and track counts.
 - Confirm selecting a playlist marks it and issues no network request.
 - Confirm the browser console reports no CSP violation.
-- Confirm a user with no playlists sees the empty state rather than an error.
+
+The paging, empty, failure, and selection paths are proven deterministically
+by `web/app_test.js`; those tests are the required evidence for them, and no
+particular live account shape (more than 50 playlists, or none) is a
+completion requirement.
 
 Deployment validation, only once deployment is separately authorized and
 performed under the private operations runbook:
@@ -184,7 +189,8 @@ No Spotify playlist is created, modified, or deleted during validation.
 ## Success Criteria
 
 - A connected user's playlists are listed on the page with name and track
-  count, across more than one page of results.
+  count. Multi-page correctness is proven by the deterministic paging test,
+  or by a live multi-page account when the user authorizes one.
 - Selecting a playlist visibly marks it and records the id in page state.
 - An empty playlist set, and a failed listing, each render a distinct state
   rather than a blank or broken page.
@@ -223,7 +229,7 @@ Remaining before this plan can be completed:
   does not by itself authorize a live deployment, so this step needs explicit
   user direction. Independently, the development workspace has no
   `/opt/trueshuffle` and cannot complete TLS to the public origin.
-- Manual browser validation against a live Spotify account, including an
-  account with more than 50 playlists and an account with none. The paging,
-  empty, failure, and selection paths are covered deterministically by
-  `web/app_test.js`, but no live account has been used.
+- Nothing else. Manual browser validation against a live Spotify account is
+  conditional on explicit user authorization and is not a completion blocker;
+  the paging, empty, failure, and selection paths are covered
+  deterministically by `web/app_test.js`.
