@@ -266,6 +266,25 @@ function steadyTrackHandler(playlistId, snapshotId, limit, uris) {
   };
 }
 
+function likedToken() {
+  return Object.assign(currentToken(), {
+    scope: "playlist-read-private user-library-read"
+  });
+}
+
+function likedURL(offset) {
+  return "https://api.spotify.com/v1/me/tracks?limit=50&offset=" + offset;
+}
+
+// Serves every saved-tracks page for a library whose contents never change.
+function steadyLikedHandler(limit, uris) {
+  return (url) => {
+    const offset = Number(new URL(url).searchParams.get("offset"));
+    assert.equal(url, likedURL(offset));
+    return trackPageResponse(limit, uris.length, uris.slice(offset, offset + limit));
+  };
+}
+
 function deferred() {
   let resolve;
   const promise = new Promise((nextResolve) => {
@@ -283,6 +302,9 @@ function createHarness(options) {
   const trackStatusElement = new FakeElement(true);
   const trackProgressElement = new FakeElement(true);
   const playlistsElement = new FakeElement(true);
+  const likedStatusElement = new FakeElement(true);
+  const likedConnectButton = new FakeElement(true);
+  const likedLoadButton = new FakeElement(true);
   const elements = {
     status: statusElement,
     connect: connectButton,
@@ -290,7 +312,10 @@ function createHarness(options) {
     "playlist-status": playlistStatusElement,
     "track-status": trackStatusElement,
     "track-progress": trackProgressElement,
-    playlists: playlistsElement
+    playlists: playlistsElement,
+    "liked-status": likedStatusElement,
+    "liked-connect": likedConnectButton,
+    "liked-load": likedLoadButton
   };
   const localStorage = options.localStorage || new FakeStorage();
   const sessionStorage = options.sessionStorage || new FakeStorage();
@@ -332,6 +357,9 @@ function createHarness(options) {
       if (url.startsWith(playlistsEndpoint + "?")) {
         return (options.playlistHandler || (() => playlistPage([])))(url, requestOptions);
       }
+      if (url.startsWith("https://api.spotify.com/v1/me/tracks") && options.likedHandler) {
+        return options.likedHandler(url, requestOptions);
+      }
       if (url.startsWith("https://api.spotify.com/v1/playlists/") && options.trackHandler) {
         return options.trackHandler(url, requestOptions);
       }
@@ -371,7 +399,10 @@ function createHarness(options) {
     sessionStorage: sessionStorage,
     statusElement: statusElement,
     trackProgressElement: trackProgressElement,
-    trackStatusElement: trackStatusElement
+    trackStatusElement: trackStatusElement,
+    likedStatusElement: likedStatusElement,
+    likedConnectButton: likedConnectButton,
+    likedLoadButton: likedLoadButton
   };
 }
 
@@ -1083,4 +1114,140 @@ test("connect recovers from a partial pending authorization write", async () => 
   assert.equal(harness.statusElement.textContent, "Spotify authorization could not be started.");
   assert.equal(harness.connectButton.hidden, false);
   assert.equal(harness.connectButton.disabled, false);
+});
+
+test("a token without the library scope offers reconnection for Liked Songs", async () => {
+  const harness = createHarness({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(currentToken())})
+  });
+
+  await settle();
+
+  assert.equal(harness.likedStatusElement.textContent, "Reconnect Spotify to enable Liked Songs.");
+  assert.equal(harness.likedConnectButton.hidden, false);
+  assert.equal(harness.likedLoadButton.hidden, true);
+
+  harness.likedConnectButton.click();
+  await settle(40);
+
+  assert.ok(harness.location.assigned, "reconnection starts the authorization flow");
+  assert.ok(
+    harness.location.assigned.includes("user-library-read"),
+    "the authorize URL requests the library scope"
+  );
+});
+
+test("loading Liked Songs reads every page and renders the count", async () => {
+  const uris = [];
+  for (let index = 0; index < 120; index += 1) {
+    uris.push("spotify:track:liked" + index);
+  }
+  const harness = createHarness({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    likedHandler: steadyLikedHandler(50, uris)
+  });
+
+  await settle();
+  assert.equal(harness.likedStatusElement.textContent, "Liked Songs can be loaded.");
+  assert.equal(harness.likedConnectButton.hidden, true);
+  assert.equal(harness.likedLoadButton.hidden, false);
+
+  harness.likedLoadButton.click();
+  await settle();
+
+  assert.match(harness.likedStatusElement.textContent, /^Loaded 120 tracks in \d+\.\ds\.$/);
+  const likedRequests = harness.requests
+    .filter((request) => request.url.startsWith("https://api.spotify.com/v1/me/tracks"))
+    .map((request) => request.url);
+  assert.deepEqual(likedRequests, [
+    likedURL(0),
+    likedURL(50),
+    likedURL(100),
+    likedURL(0)
+  ], "page 0, the pooled offsets, then the verification probe");
+  assert.equal(harness.trackProgressElement.hidden, true);
+  assert.equal(harness.likedLoadButton.disabled, false);
+});
+
+test("a Liked Songs total drift fails the read", async () => {
+  let pageZeroCalls = 0;
+  const harness = createHarness({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    likedHandler: (url) => {
+      if (url === likedURL(0)) {
+        pageZeroCalls += 1;
+        return trackPageResponse(50, pageZeroCalls === 1 ? 1 : 2, ["spotify:track:a"]);
+      }
+      throw new Error("unexpected liked request: " + url);
+    }
+  });
+
+  await settle();
+  harness.likedLoadButton.click();
+  await settle();
+
+  assert.equal(
+    harness.likedStatusElement.textContent,
+    "Liked Songs changed while loading. Load them again."
+  );
+});
+
+test("a failed Liked Songs read leaves playlists and token intact", async () => {
+  const rawToken = JSON.stringify(likedToken());
+  const localStorage = new FakeStorage({[tokenStorageKey]: rawToken});
+  const harness = createHarness({
+    localStorage: localStorage,
+    playlistHandler: () => playlistPage([{id: "first", name: "Morning", tracks: {total: 1}}]),
+    likedHandler: () => jsonResponse(500, {error: {status: 500}})
+  });
+
+  await settle();
+  harness.likedLoadButton.click();
+  await settle();
+
+  assert.equal(harness.likedStatusElement.textContent, "Liked Songs could not be loaded. Try again.");
+  assert.equal(localStorage.getItem(tokenStorageKey), rawToken);
+  assert.equal(harness.playlistsElement.hidden, false);
+  assert.equal(harness.statusElement.textContent, "Spotify is connected in this browser.");
+});
+
+test("a Liked Songs load disables the playlist buttons", async () => {
+  const entry = deferred();
+  const harness = createHarness({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    playlistHandler: () => playlistPage([{id: "first", name: "Morning", tracks: {total: 1}}]),
+    likedHandler: () => entry.promise
+  });
+
+  await settle();
+  harness.likedLoadButton.click();
+  await settle();
+
+  assert.equal(playlistButtons(harness)[0].disabled, true);
+  assert.equal(harness.likedLoadButton.disabled, true);
+
+  entry.resolve(trackPageResponse(50, 1, ["spotify:track:a"]));
+  await settle();
+
+  assert.equal(playlistButtons(harness)[0].disabled, false);
+  assert.equal(harness.likedLoadButton.disabled, false);
+});
+
+test("disconnecting clears the Liked Songs section", async () => {
+  const harness = createHarness({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    likedHandler: steadyLikedHandler(50, ["spotify:track:a"])
+  });
+
+  await settle();
+  harness.likedLoadButton.click();
+  await settle();
+  assert.match(harness.likedStatusElement.textContent, /^Loaded 1 track in \d+\.\ds\.$/);
+
+  harness.logoutButton.click();
+
+  assert.equal(harness.likedStatusElement.hidden, true);
+  assert.equal(harness.likedStatusElement.textContent, "");
+  assert.equal(harness.likedConnectButton.hidden, true);
+  assert.equal(harness.likedLoadButton.hidden, true);
 });

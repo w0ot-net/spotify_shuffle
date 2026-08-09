@@ -6,6 +6,9 @@
 var TrueShuffle = (function () {
   const playlistsEndpoint = "https://api.spotify.com/v1/me/playlists";
   const playlistEndpointPrefix = "https://api.spotify.com/v1/playlists/";
+  const likedTracksEndpoint = "https://api.spotify.com/v1/me/tracks";
+  // The saved-tracks endpoint maximum; it supports no fields filtering.
+  const likedPageLimit = 50;
   // The published maximum page size for the tracks endpoint. The server
   // echoes the size it actually enforced, and offsets step by that echo.
   const trackPageLimit = 100;
@@ -127,9 +130,19 @@ var TrueShuffle = (function () {
     return {limit: payload.limit, total: payload.total, count: payload.items.length, uris: uris};
   }
 
-  function remainingTrackOffsets(pageLimit, total) {
-    if (total > maxPlaylistTracks) {
-      throw new Error("Spotify reported more tracks than a playlist can hold");
+  function likedPageURL(offset) {
+    return likedTracksEndpoint + "?limit=" + likedPageLimit + "&offset=" + offset;
+  }
+
+  function hasScope(scope, name) {
+    return scope.split(" ").includes(name);
+  }
+
+  // The caller supplies the maximum because the bounds differ: a playlist
+  // holds at most 10,000 items while the liked-songs library is uncapped.
+  function remainingTrackOffsets(pageLimit, total, maxTotal) {
+    if (total > maxTotal) {
+      throw new Error("Spotify reported more tracks than this read allows");
     }
     const offsets = [];
     for (let offset = pageLimit; offset < total; offset += pageLimit) {
@@ -209,7 +222,10 @@ var TrueShuffle = (function () {
     assembleTrackPages: assembleTrackPages,
     buildTokenRecord: buildTokenRecord,
     countTrackChanges: countTrackChanges,
+    hasScope: hasScope,
+    likedPageURL: likedPageURL,
     loadedTracksMessage: loadedTracksMessage,
+    maxPlaylistTracks: maxPlaylistTracks,
     playlistLabel: playlistLabel,
     playlistSnapshotURL: playlistSnapshotURL,
     playlistsEndpoint: playlistsEndpoint,

@@ -29,7 +29,11 @@ count, with a live progress bar during the pull and the elapsed time in the
 result. Track lists are cached in IndexedDB and validated with Spotify
 snapshots, so re-selecting an unchanged playlist issues no track requests,
 and a changed playlist is re-read and reports how many tracks were added and
-removed since the last read. It does not yet modify any playlist.
+removed since the last read. A Liked Songs section reads the account's
+complete saved-tracks library the same way (Liked Songs is not a playlist
+and cannot be reordered in place; connections made before this feature show
+a one-time reconnect to grant the library scope). It does not yet modify
+any playlist.
 
 The browser stores Spotify access and refresh tokens in `localStorage` under a
 versioned application key. The key retains the project's former
@@ -69,10 +73,11 @@ The deployed callback is:
 https://shuffle.p.a-9.co/callback
 ```
 
-The app requests `playlist-read-private`, `playlist-modify-public`, and
-`playlist-modify-private`. Only `playlist-read-private` is exercised today, to
-list the account's playlists and read the selected playlist's tracks. The
-modify grants are stored for the upcoming playlist management work.
+The app requests `playlist-read-private`, `playlist-modify-public`,
+`playlist-modify-private`, and `user-library-read`. The read scopes are
+exercised to list playlists, read the selected playlist's tracks, and read
+Liked Songs. The modify grants are stored for the upcoming playlist
+management work.
 
 Check the running server with:
 

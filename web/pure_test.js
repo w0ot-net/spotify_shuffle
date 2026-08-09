@@ -143,17 +143,43 @@ test("readTrackPage rejects malformed payloads", () => {
   }
 });
 
-test("remainingTrackOffsets steps by the echoed limit below the cap", () => {
-  assert.deepEqual(plain(TrueShuffle.remainingTrackOffsets(100, 0)), []);
-  assert.deepEqual(plain(TrueShuffle.remainingTrackOffsets(100, 100)), []);
-  assert.deepEqual(plain(TrueShuffle.remainingTrackOffsets(100, 101)), [100]);
-  assert.deepEqual(plain(TrueShuffle.remainingTrackOffsets(100, 250)), [100, 200]);
-  assert.deepEqual(plain(TrueShuffle.remainingTrackOffsets(50, 150)), [50, 100]);
-  assert.equal(TrueShuffle.remainingTrackOffsets(100, 10000).length, 99);
+test("remainingTrackOffsets steps by the echoed limit below the caller's cap", () => {
+  const cap = TrueShuffle.maxPlaylistTracks;
+  assert.equal(cap, 10000);
+  assert.deepEqual(plain(TrueShuffle.remainingTrackOffsets(100, 0, cap)), []);
+  assert.deepEqual(plain(TrueShuffle.remainingTrackOffsets(100, 100, cap)), []);
+  assert.deepEqual(plain(TrueShuffle.remainingTrackOffsets(100, 101, cap)), [100]);
+  assert.deepEqual(plain(TrueShuffle.remainingTrackOffsets(100, 250, cap)), [100, 200]);
+  assert.deepEqual(plain(TrueShuffle.remainingTrackOffsets(50, 150, cap)), [50, 100]);
+  assert.equal(TrueShuffle.remainingTrackOffsets(100, 10000, cap).length, 99);
   assert.throws(
-    () => TrueShuffle.remainingTrackOffsets(100, 10001),
-    /more tracks than a playlist can hold/
+    () => TrueShuffle.remainingTrackOffsets(100, 10001, cap),
+    /more tracks than this read allows/
   );
+  // The uncapped liked-songs read passes a maximum of its own.
+  assert.equal(
+    TrueShuffle.remainingTrackOffsets(50, 10001, Number.MAX_SAFE_INTEGER).length,
+    200
+  );
+});
+
+test("likedPageURL addresses the saved-tracks endpoint by offset", () => {
+  assert.equal(
+    TrueShuffle.likedPageURL(0),
+    "https://api.spotify.com/v1/me/tracks?limit=50&offset=0"
+  );
+  assert.equal(
+    TrueShuffle.likedPageURL(4150),
+    "https://api.spotify.com/v1/me/tracks?limit=50&offset=4150"
+  );
+});
+
+test("hasScope matches whole scope words only", () => {
+  assert.equal(TrueShuffle.hasScope("playlist-read-private user-library-read", "user-library-read"), true);
+  assert.equal(TrueShuffle.hasScope("user-library-read", "user-library-read"), true);
+  assert.equal(TrueShuffle.hasScope("", "user-library-read"), false);
+  assert.equal(TrueShuffle.hasScope("playlist-read-private", "user-library-read"), false);
+  assert.equal(TrueShuffle.hasScope("user-library-read-extra", "user-library-read"), false);
 });
 
 test("assembleTrackPages orders by offset regardless of input order", () => {

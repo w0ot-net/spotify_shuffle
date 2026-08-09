@@ -18,6 +18,8 @@ All Spotify traffic originates in the browser. Five endpoints are in use:
   and verifying the playlist `snapshot_id` around a track read.
 - `https://api.spotify.com/v1/playlists/{id}/tracks` -- authenticated GET
   reading the selected playlist's track URIs.
+- `https://api.spotify.com/v1/me/tracks` -- authenticated GET reading the
+  account's Liked Songs library.
 
 ## Paging
 
@@ -57,6 +59,21 @@ Every track-read URL is constructed locally against the fixed API origin
 with the playlist id URI-encoded; track reading follows no server-supplied
 cursor at all, so the listing's cursor guard has no analogue here and the
 bearer token cannot be steered off-origin by a response.
+
+## Liked Songs reading
+
+Liked Songs is not a playlist resource: it is absent from the listing, has
+no `snapshot_id`, and has no reorder API. `/v1/me/tracks` supports no
+`fields` filtering, so full track objects arrive and only `track.uri` is
+consumed; the page maximum is 50 and the library has no 10,000-item cap
+(Spotify removed it in 2020), so the offset computation takes a
+caller-supplied bound. With no snapshot, the read pins the page-0 `total`,
+runs the same bounded pool and offset assembly as playlist reads, and
+verifies with the summed raw count plus a final probe whose `total` must
+match the pin -- the strongest torn-read detection the endpoint offers.
+Reading the library requires `user-library-read` (see the
+[authorization model](../browser/AUTHORIZATION_MODEL.md) for how older
+tokens are gated to a reconnect).
 
 ## Snapshot semantics
 

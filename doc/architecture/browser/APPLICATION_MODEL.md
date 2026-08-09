@@ -55,7 +55,10 @@ The page-state vocabulary the lifecycle renders:
   distinct rendered message;
 - track states: loading (with a determinate progress element during a
   network read), loaded count with the read's elapsed time, and failure,
-  rendered in their own status line.
+  rendered in their own status line;
+- liked states: reconnect required (token predates `user-library-read`),
+  loadable, loading, loaded count with elapsed time, and failure, in the
+  Liked Songs section's own status line.
 
 Selecting a playlist records `{id, name}` in module-scope page state, marks
 the chosen button with `aria-pressed`, and loads the playlist's ordered
@@ -70,9 +73,13 @@ its maximum is the server-reported total, each completed page advances it
 by that page's raw item count, and it hides when the load settles either
 way. The numbers stay out of the `aria-live` status text so screen readers
 are not spammed per page, and the loaded message reports the elapsed
-seconds; a cache hit renders instantly with neither bar nor duration. The
-playlist buttons are disabled until the load settles, so one load runs at
-a time without cancellation machinery. Either path lands the list in module-scope
+seconds; a cache hit renders instantly with neither bar nor duration. One operation runs at a
+time: every action button -- the playlist buttons and the Liked Songs
+section's -- is disabled until the active load settles, which is also what
+lets the single progress element serve every operation. A loaded Liked
+Songs library lands in module-scope `likedTracks` (`{uris}`), the input
+for the shuffled-playlist increment; it is page state only and is never
+cached, because the library has no snapshot to validate against. Either path lands the list in module-scope
 `loadedTracks` -- `{id, snapshotId, uris}` -- the attachment point for
 shuffle generation (planned). A failed read clears `loadedTracks`, renders
 the failure in the track status line, and leaves the listing, selection,
