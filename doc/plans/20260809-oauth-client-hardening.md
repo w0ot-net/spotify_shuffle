@@ -101,10 +101,10 @@ Extend the README test section with the Node requirement and the exact built-in 
 - `README.md`
   - reproducible JavaScript test instructions.
 - Deployed TrueShuffle application
-  - rebuilt and installed through the established remote repository workflow after validation;
-  - current host paths and the systemd unit use the `trueshuffle` name, but the
-    checkout, executable, and environment file remain split across
-    `/root/tools`, `/opt`, and `/etc` pending the self-contained layout plan.
+  - source checkout at `/opt/trueshuffle/repo`;
+  - commit-addressed executable releases under `/opt/trueshuffle/releases`;
+  - atomic `/opt/trueshuffle/current` release pointer and
+    `trueshuffle.service` restart after validation.
 
 No changes are expected in `main.go`, `main_test.go`, the HTML/CSS, server configuration, or Spotify application configuration.
 
@@ -115,7 +115,10 @@ No changes are expected in `main.go`, `main_test.go`, the HTML/CSS, server confi
 3. Add `web/app_test.js` with the focused token and storage failure cases listed above.
 4. Update the README test section with `node --test web/app_test.js` and the supported Node version.
 5. Run all local validation commands and inspect the final diff for accidental scope growth.
-6. Commit and push the implementation, pull it into the existing remote clone, rebuild, atomically install, restart, and verify the live service.
+6. Commit and push the implementation, pull it into
+   `/opt/trueshuffle/repo`, build a verified commit-addressed release, switch
+   `/opt/trueshuffle/current` atomically with rollback available, restart
+   `trueshuffle.service`, and verify the live service.
 
 ## 7. Validation Strategy
 
@@ -143,9 +146,15 @@ The JavaScript tests must prove both sides of the refresh boundary: `invalid_gra
 
 ### Deployment validation
 
-- Pull the pushed commit with `git pull --ff-only` in the existing remote clone.
-- Run the Go tests and build on the remote host.
-- Install the binary atomically and restart the existing service.
+- Pull the pushed commit with `git pull --ff-only` in
+  `/opt/trueshuffle/repo`.
+- Run the JavaScript and Go tests and build in an OS temporary directory on the
+  remote host.
+- Verify the binary's embedded clean Git revision, install it under
+  `/opt/trueshuffle/releases/<revision>`, and atomically switch
+  `/opt/trueshuffle/current` before restarting `trueshuffle.service`.
+- Retain the previous `current` target until activation and HTTP checks pass;
+  restore it if the new service fails validation.
 - Confirm the service is active with no restart loop.
 - Confirm the local health endpoint and public HTTPS routes still respond successfully.
 
