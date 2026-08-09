@@ -91,3 +91,51 @@ a renderer or testing-only abstraction.
   external services.
 - No authentication, interactive UI, styling system, or deployment behavior is
   introduced.
+
+## Execution Notes
+
+Completed on 2026-08-08.
+
+Implemented behavior:
+
+- Added a semantic, mobile-compatible document at `web/index.html` with the
+  project heading and not-configured status.
+- Embedded that document into the Go executable and served it from the exact
+  `GET /{$}` route with an explicit HTML content type.
+- Added focused in-memory coverage for the root response while retaining the
+  existing health test.
+- Updated the README status and local browser URL.
+
+Changed ownership boundaries:
+
+- `web/index.html` owns the complete static home document.
+- `main.go` owns embedding and serving the document through the existing mux.
+- `main_test.go` owns the root response contract alongside the existing health
+  contract.
+- No template engine, static-file server, frontend dependency, or new package
+  was introduced.
+
+Deviations:
+
+- None.
+
+Validation:
+
+- `gofmt -w main.go main_test.go`: completed successfully.
+- `go test ./...`: passed for `github.com/w0ot-net/spotify_shuffle`.
+- Temporary-directory binary smoke check: `/` returned status `200`, the
+  expected HTML content type, viewport metadata, heading, and status without a
+  runtime `web/` tree.
+- The same smoke process returned the unchanged `/healthz` status, content
+  type, and `ok\n` body.
+- `git diff --check`: passed before the implementation commit.
+
+Implementation commit:
+
+- `87eca6b` (`Add minimal embedded home page`).
+
+Unresolved blockers and excluded follow-up:
+
+- None. Spotify configuration and authentication, interactive controls,
+  JavaScript, styling, and deployment remain deliberately outside this
+  completed plan.
