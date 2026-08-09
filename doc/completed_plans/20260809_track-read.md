@@ -226,3 +226,10 @@ Live validation against a real account and deployment were not performed;
 both remain conditional on explicit user direction per `AGENTS.md`. The
 recorded evidence for the paging, ordering, failure, and state-scope
 criteria is the deterministic test suite.
+
+Deployment, completed 2026-08-09 with explicit user direction under the
+private operations runbook: shipped as release
+`96808e109a9035282c192ccb6ec5d692263ee0af` together with the track-cache
+and track-read-progress plans, whose records hold the shared validation
+details. Manual browser validation against a live Spotify account was not
+performed.

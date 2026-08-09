@@ -219,3 +219,10 @@ Go files changed, so no Go validation was run.
 Live validation -- mutating a real playlist and confirming the reported
 counts -- and deployment were not performed; both remain conditional on
 explicit user direction per `AGENTS.md`.
+
+Deployment, completed 2026-08-09 with explicit user direction under the
+private operations runbook: shipped as release
+`96808e109a9035282c192ccb6ec5d692263ee0af` together with the track-read
+and track-read-progress plans, whose records hold the shared validation
+details. Manual browser validation against a live Spotify account was not
+performed.

@@ -196,3 +196,19 @@ Validation, all passing: `gofmt -l main.go main_test.go` (no output),
 Live confirmation on a real large playlist -- watching the bar and
 recording the reported duration as rate-limit evidence -- remains
 conditional on explicit user direction, as does deployment.
+
+Deployment, completed 2026-08-09 with explicit user direction under the
+private operations runbook: shipped as release
+`96808e109a9035282c192ccb6ec5d692263ee0af` together with the track-read
+and track-cache plans. The binary's embedded `vcs.revision` matches and
+`vcs.modified` is false; binary SHA-256
+`301a1888707dee1c9c6ce31b4be9c6051532b7a3cb6cd17d75e04744ec2ced8b`. The
+full Go and JavaScript suites passed on the host (49 of 49 browser tests
+via direct `node` execution per the host's recorded `node --test`
+limitation). The previous release `869dbf8...` was retained and `current`
+switched atomically; after restart the service is active with zero
+restarts, the listener is loopback-only, loopback and public `/`,
+`/api/config`, and `/healthz` are healthy, the `track-progress` element is
+served on the public origin, and no warning-or-higher journal entries
+appeared. Manual browser validation against a live Spotify account was not
+performed.
