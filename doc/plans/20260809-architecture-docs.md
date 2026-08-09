@@ -1,5 +1,7 @@
 # Plan: Architecture Documentation Tree
 
+*Distilled: 2026-08-09*
+
 ## Summary
 
 Create a `doc/README.md` documentation map and a `doc/architecture/` tree of
