@@ -48,6 +48,7 @@ func TestAppPage(t *testing.T) {
 				"<h1>TrueShuffle</h1>",
 				`id="connect"`,
 				`id="logout"`,
+				`id="playlists"`,
 				`<script src="/app.js" defer></script>`,
 			} {
 				if !strings.Contains(recorder.Body.String(), marker) {
@@ -142,6 +143,16 @@ func TestHealthz(t *testing.T) {
 	}
 	if got, want := recorder.Body.String(), "ok\n"; got != want {
 		t.Errorf("body = %q, want %q", got, want)
+	}
+}
+
+// The header assertion below compares against the policy constant, so it
+// cannot detect a wrong value. Pin the connection sources the browser app
+// actually requires.
+func TestContentSecurityPolicyConnectSources(t *testing.T) {
+	const want = "connect-src 'self' https://accounts.spotify.com https://api.spotify.com;"
+	if !strings.Contains(contentSecurityPolicy, want) {
+		t.Errorf("Content-Security-Policy = %q, want it to contain %q", contentSecurityPolicy, want)
 	}
 }
 

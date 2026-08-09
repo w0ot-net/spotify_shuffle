@@ -11,7 +11,7 @@ import (
 )
 
 const defaultListenAddr = "127.0.0.1:8080"
-const contentSecurityPolicy = "default-src 'none'; script-src 'self'; connect-src 'self' https://accounts.spotify.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'"
+const contentSecurityPolicy = "default-src 'none'; script-src 'self'; connect-src 'self' https://accounts.spotify.com https://api.spotify.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'"
 
 //go:embed web/index.html
 var indexHTML []byte

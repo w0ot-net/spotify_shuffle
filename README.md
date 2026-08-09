@@ -21,8 +21,9 @@ time on every shuffle.
 
 The project currently provides a Go HTTP server with an embedded browser app,
 Spotify Authorization Code with PKCE, and a `GET /healthz` endpoint. The page
-can connect and disconnect Spotify in one browser. It does not yet read or
-modify playlists.
+can connect and disconnect Spotify in one browser, and lists the connected
+account's playlists so one can be selected. It does not yet read playlist
+items, cache them, or modify any playlist.
 
 The browser stores Spotify access and refresh tokens in `localStorage` under a
 versioned application key. The key retains the project's former
@@ -63,8 +64,9 @@ https://shuffle.p.a-9.co/callback
 ```
 
 The app requests `playlist-read-private`, `playlist-modify-public`, and
-`playlist-modify-private`. These grants are stored for the upcoming playlist
-management work; the current page does not make playlist API calls.
+`playlist-modify-private`. Only `playlist-read-private` is exercised today, to
+list the account's playlists. The modify grants are stored for the upcoming
+playlist management work.
 
 Check the running server with:
 
@@ -76,7 +78,9 @@ curl http://127.0.0.1:8080/healthz
 
 The authenticated application origin must load only repository-owned
 JavaScript. Response headers enforce a restrictive Content Security Policy and
-do not permit third-party scripts, inline scripts, or `eval`. Advertising,
+do not permit third-party scripts, inline scripts, or `eval`. The policy allows
+browser connections only to this origin, `https://accounts.spotify.com` for
+tokens, and `https://api.spotify.com` for Web API reads. Advertising,
 analytics, or other third-party JavaScript must use a separate origin and must
 not receive Spotify data.
 
@@ -92,8 +96,8 @@ Run the Go tests with Go 1.22 or later:
 go test ./...
 ```
 
-Run the browser authentication tests with Node.js 18 or later. They use only
-Node's built-in test modules and require no package installation:
+Run the browser authentication and playlist tests with Node.js 18 or later.
+They use only Node's built-in test modules and require no package installation:
 
 ```sh
 node --test web/app_test.js

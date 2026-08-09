@@ -3,6 +3,10 @@
 
   const authorizeEndpoint = "https://accounts.spotify.com/authorize";
   const tokenEndpoint = "https://accounts.spotify.com/api/token";
+  const playlistsEndpoint = "https://api.spotify.com/v1/me/playlists";
+  // Spotify caps a page at 50 items and a library at 10,000 playlists.
+  const playlistPageLimit = 50;
+  const maxPlaylistPages = 200;
   // Keep the legacy namespace so the product rename preserves browser sessions.
   const tokenStorageKey = "spotify_shuffle.oauth.v1";
   const stateStorageKey = "spotify_shuffle.oauth.state.v1";
@@ -17,7 +21,10 @@
   const statusElement = document.getElementById("status");
   const connectButton = document.getElementById("connect");
   const logoutButton = document.getElementById("logout");
+  const playlistStatusElement = document.getElementById("playlist-status");
+  const playlistsElement = document.getElementById("playlists");
   let publicConfig = null;
+  let selectedPlaylist = null;
 
   class TokenRejectedError extends Error {}
   class AuthorizationRevokedError extends TokenRejectedError {}
@@ -229,6 +236,119 @@
     return storeTokenResponse(payload, token);
   }
 
+  function renderPlaylistStatus(message) {
+    playlistStatusElement.textContent = message;
+    playlistStatusElement.hidden = false;
+  }
+
+  function clearPlaylists() {
+    selectedPlaylist = null;
+    playlistsElement.textContent = "";
+    playlistsElement.hidden = true;
+    playlistStatusElement.textContent = "";
+    playlistStatusElement.hidden = true;
+  }
+
+  function playlistLabel(playlist) {
+    if (playlist.total === null) {
+      return playlist.name;
+    }
+    return playlist.name + " (" + playlist.total +
+      (playlist.total === 1 ? " track)" : " tracks)");
+  }
+
+  function readPlaylistPage(payload, playlists) {
+    if (!payload || !Array.isArray(payload.items)) {
+      throw new Error("Spotify returned an invalid playlist page");
+    }
+    for (const item of payload.items) {
+      // Spotify can include null placeholders for items it cannot expose.
+      if (!item || typeof item.id !== "string" || item.id === "") {
+        continue;
+      }
+      playlists.push({
+        id: item.id,
+        name: typeof item.name === "string" && item.name !== "" ? item.name : "Untitled playlist",
+        total: item.tracks && Number.isFinite(item.tracks.total) ? item.tracks.total : null
+      });
+    }
+  }
+
+  async function requestPlaylistPage(token, url) {
+    const response = await window.fetch(url, {
+      headers: {Authorization: token.token_type + " " + token.access_token}
+    });
+    if (!response.ok) {
+      throw new Error("Spotify playlist request failed with status " + response.status);
+    }
+    return response.json();
+  }
+
+  async function fetchPlaylists(token) {
+    const playlists = [];
+    let url = playlistsEndpoint + "?limit=" + playlistPageLimit;
+    for (let page = 0; page < maxPlaylistPages; page += 1) {
+      const payload = await requestPlaylistPage(token, url);
+      readPlaylistPage(payload, playlists);
+      if (typeof payload.next !== "string" || payload.next === "") {
+        return playlists;
+      }
+      // The bearer token must never follow a cursor off the Spotify API origin.
+      if (!payload.next.startsWith(playlistsEndpoint + "?")) {
+        throw new Error("Spotify returned an unexpected playlist page cursor");
+      }
+      url = payload.next;
+    }
+    throw new Error("Spotify returned more playlist pages than this app reads");
+  }
+
+  function selectPlaylist(playlist, button) {
+    if (selectedPlaylist) {
+      selectedPlaylist.button.setAttribute("aria-pressed", "false");
+    }
+    selectedPlaylist = {id: playlist.id, name: playlist.name, button: button};
+    button.setAttribute("aria-pressed", "true");
+    renderPlaylistStatus("Selected " + playlist.name + ".");
+  }
+
+  function renderPlaylists(playlists) {
+    playlistsElement.textContent = "";
+    for (const playlist of playlists) {
+      const button = document.createElement("button");
+      button.type = "button";
+      // Playlist names are third-party text and must never become markup.
+      button.textContent = playlistLabel(playlist);
+      button.setAttribute("aria-pressed", "false");
+      button.addEventListener("click", function () {
+        selectPlaylist(playlist, button);
+      });
+
+      const item = document.createElement("li");
+      item.appendChild(button);
+      playlistsElement.appendChild(item);
+    }
+    playlistsElement.hidden = false;
+  }
+
+  async function loadPlaylists(token) {
+    renderPlaylistStatus("Loading playlists...");
+    let playlists;
+    try {
+      playlists = await fetchPlaylists(token);
+    } catch (_) {
+      // A failed listing is not proof of revocation, so the token is kept.
+      renderPlaylistStatus("Playlists could not be loaded. Reload to try again.");
+      return;
+    }
+
+    if (playlists.length === 0) {
+      renderPlaylistStatus("This Spotify account has no playlists.");
+      return;
+    }
+    renderPlaylists(playlists);
+    renderPlaylistStatus("Select a playlist.");
+  }
+
   async function startAuthorization() {
     if (!publicConfig) {
       throw new Error("public configuration is unavailable");
@@ -283,7 +403,7 @@
       redirect_uri: redirectURI(),
       code_verifier: pendingAuthorization.verifier
     });
-    storeTokenResponse(payload, null);
+    return storeTokenResponse(payload, null);
   }
 
   async function initialize() {
@@ -302,8 +422,9 @@
     if (window.location.pathname === "/callback") {
       renderWorking("Completing Spotify connection...");
       try {
-        await handleCallback();
+        const token = await handleCallback();
         renderConnected();
+        await loadPlaylists(token);
       } catch (error) {
         clearStoredToken();
         const message = error instanceof TokenRejectedError
@@ -321,13 +442,14 @@
     }
     if (token.expires_at - Date.now() > expirySkewMilliseconds) {
       renderConnected();
+      await loadPlaylists(token);
       return;
     }
 
     renderWorking("Refreshing Spotify connection...");
+    let refreshed;
     try {
-      await refreshToken(token);
-      renderConnected();
+      refreshed = await refreshToken(token);
     } catch (error) {
       if (error instanceof AuthorizationRevokedError) {
         clearStoredToken();
@@ -335,7 +457,10 @@
         return;
       }
       renderError("Spotify could not be reached. Reload to try again.", false);
+      return;
     }
+    renderConnected();
+    await loadPlaylists(refreshed);
   }
 
   connectButton.addEventListener("click", function () {
@@ -350,6 +475,7 @@
     logoutButton.disabled = true;
     clearPendingAuthorization();
     clearStoredToken();
+    clearPlaylists();
     renderDisconnected("Spotify was disconnected from this browser.");
   });
 
