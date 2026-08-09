@@ -232,5 +232,17 @@ Validation, all passing: `gofmt -l main.go main_test.go` (no output),
 `node --test web/pure_test.js web/app_test.js` (73 pass, 0 fail),
 `git diff --check`, and the inverted purity grep.
 
+Correction: the plan revisions `c8086f1` and `cf8ff29` -- visible-name
+deduplication with the liked row counting as the first "Liked Songs",
+and the conditional shadowed-duplicates note -- landed in parallel with
+this execution and were missed by commit `2d27d30`. They were implemented
+immediately after in the addendum commit recorded below:
+`displayedPlaylists` now returns the unique-named visible rows plus the
+shadowed count, the pure `shadowedRowsNote` renders the one-line note
+(singular and plural) exactly when something was shadowed, the note
+joins the list status line, and pure and harness cases cover first-
+instance-wins, the shadowed "Liked Songs" playlist, and the note's
+presence and absence (76 pass, 0 fail under the same validation set).
+
 Deployment under the standing direction is recorded below with the
 companion derived-target plan.

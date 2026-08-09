@@ -474,12 +474,43 @@ test("displayedPlaylists hides derived names and keeps near misses", () => {
     {id: "d", name: "Morning TrueShuffle Backup"},
     {id: "e", name: " TrueShuffle"}
   ];
+  const displayed = TrueShuffle.displayedPlaylists(playlists);
   assert.deepEqual(
-    plain(TrueShuffle.displayedPlaylists(playlists)).map((playlist) => playlist.id),
+    plain(displayed.playlists).map((playlist) => playlist.id),
     ["a", "c", "d"],
     "only names ending with the derived suffix are hidden"
   );
+  assert.equal(displayed.shadowedCount, 0, "derived hiding is routine and uncounted");
   assert.equal(playlists.length, 5, "the retained listing itself is untouched");
+});
+
+test("displayedPlaylists keeps the first instance of each name and counts the shadowed", () => {
+  const playlists = [
+    {id: "a", name: "Morning"},
+    {id: "b", name: "Liked Songs"},
+    {id: "c", name: "Morning"},
+    {id: "d", name: "Evening"},
+    {id: "e", name: "Morning"}
+  ];
+  const displayed = TrueShuffle.displayedPlaylists(playlists);
+  assert.deepEqual(
+    plain(displayed.playlists).map((playlist) => playlist.id),
+    ["a", "d"],
+    "first instance wins; the liked row counts as the first \"Liked Songs\""
+  );
+  assert.equal(displayed.shadowedCount, 3);
+});
+
+test("shadowedRowsNote renders exactly when something was shadowed", () => {
+  assert.equal(TrueShuffle.shadowedRowsNote(0), "");
+  assert.equal(
+    TrueShuffle.shadowedRowsNote(1),
+    "1 playlist with a duplicate name is hidden; rename it in Spotify to shuffle it."
+  );
+  assert.equal(
+    TrueShuffle.shadowedRowsNote(3),
+    "3 playlists with duplicate names are hidden; rename them in Spotify to shuffle them."
+  );
 });
 
 test("likedRowLabel names the reconnect gate", () => {

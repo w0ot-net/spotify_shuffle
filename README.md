@@ -35,8 +35,10 @@ and removed. Liked Songs is read through the library API each time (it is
 not a playlist, has no snapshot, and cannot be reordered in place;
 connections made before this feature show a one-time reconnect on its row to
 grant the library scope). The app hides its own derived playlists from the
-list, and the only playlists it ever writes are the ones it derives with the
-" TrueShuffle" suffix; source playlists are never modified.
+list and shows each playlist name once (a note counts any hidden duplicates,
+which become shuffleable when renamed in Spotify), and the only playlists it
+ever writes are the ones it derives with the " TrueShuffle" suffix; source
+playlists are never modified.
 
 The browser stores Spotify access and refresh tokens in `localStorage` under a
 versioned application key. The key retains the project's former

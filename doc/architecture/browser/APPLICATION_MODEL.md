@@ -69,7 +69,14 @@ The page-state vocabulary the lifecycle renders:
 The page is one list: Liked Songs first, then the account's playlists with
 the app's own derived ` TrueShuffle` playlists hidden by a render-time
 filter -- display filtering only, because the retained listing must keep
-derived entries for the write flow's target lookup. Liked Songs is a
+derived entries for the write flow's target lookup. Visible names are also
+unique: only the first instance of each name renders, in listing order,
+with the Liked Songs row counting as the first "Liked Songs", so no two
+clickable rows can share a derived target. A shadowed duplicate is
+unshuffleable until renamed in Spotify -- an accepted cost, but not a
+silent one: when deduplication hides anything, the list status line
+carries a one-line note counting the hidden rows, while the routine
+hiding of derived targets goes unannounced. Liked Songs is a
 pseudo-playlist entering the shared selection flow with a sentinel id (a
 hyphen cannot appear in a Spotify id, so it can never collide), not a
 parallel code path.

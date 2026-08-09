@@ -35,7 +35,7 @@
   const playlistsElement = document.getElementById("playlists");
   // The list's first row. A hyphen cannot appear in a Spotify id, so this
   // sentinel can never collide with a listed playlist.
-  const likedSource = {liked: true, id: "liked-songs", name: "Liked Songs"};
+  const likedSource = {liked: true, id: "liked-songs", name: TrueShuffle.likedSourceName};
   let publicConfig = null;
   let selectedPlaylist = null;
   let playlistButtons = [];
@@ -691,7 +691,7 @@
     playlistButtons.push(button);
   }
 
-  function renderSourceList(token, playlists) {
+  function renderSourceList(token, displayed) {
     playlistsElement.textContent = "";
     playlistButtons = [];
 
@@ -711,7 +711,7 @@
       });
     });
 
-    for (const playlist of TrueShuffle.displayedPlaylists(playlists)) {
+    for (const playlist of displayed) {
       appendSourceRow(TrueShuffle.playlistLabel(playlist), function (button) {
         selectPlaylist(token, playlist, button);
       });
@@ -730,8 +730,12 @@
       return;
     }
     listedPlaylists = playlists;
-    renderSourceList(token, playlists);
-    renderPlaylistStatus("Select a playlist to shuffle it.");
+    const displayed = TrueShuffle.displayedPlaylists(playlists);
+    renderSourceList(token, displayed.playlists);
+    // A shadowed duplicate is unshuffleable until renamed; hiding it
+    // silently would be the listing's version of silent truncation.
+    const note = TrueShuffle.shadowedRowsNote(displayed.shadowedCount);
+    renderPlaylistStatus("Select a playlist to shuffle it." + (note === "" ? "" : " " + note));
   }
 
   async function startAuthorization() {

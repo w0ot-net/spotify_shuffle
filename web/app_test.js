@@ -1445,3 +1445,27 @@ test("a chain in flight disables every row", async () => {
   assert.equal(buttons[1].disabled, false);
   assert.match(harness.trackStatusElement.textContent, /^Created "Liked Songs TrueShuffle" /);
 });
+
+test("duplicate-named rows dedupe with a note; unique listings render none", async () => {
+  const harness = createHarness({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    playlistHandler: () => playlistPage([
+      {id: "a", name: "Morning", tracks: {total: 1}},
+      {id: "b", name: "Liked Songs", tracks: {total: 2}},
+      {id: "c", name: "Morning", tracks: {total: 3}}
+    ])
+  });
+
+  await settle();
+
+  assert.deepEqual(
+    playlistButtons(harness).map((button) => button.textContent),
+    ["Liked Songs", "Morning (1 track)"],
+    "no two rows share a name; the liked row is the first \"Liked Songs\""
+  );
+  assert.equal(
+    harness.playlistStatusElement.textContent,
+    "Select a playlist to shuffle it. " +
+      "2 playlists with duplicate names are hidden; rename them in Spotify to shuffle them."
+  );
+});

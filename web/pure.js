@@ -304,16 +304,44 @@ var TrueShuffle = (function () {
     return message + "." + trackChangesSuffix(changes);
   }
 
-  // The rendered list hides the app's own derived playlists; the retained
-  // listing keeps them so the write flow's target lookup still sees them.
+  const likedSourceName = "Liked Songs";
+
+  // The rendered list hides the app's own derived playlists and keeps only
+  // the first instance of each name (the Liked Songs row counts as the
+  // first "Liked Songs"), so visible names are unique and name-keyed
+  // targets are unambiguous. The retained listing keeps everything so the
+  // write flow's target lookup still sees it. Derived hiding is routine
+  // and uncounted; shadowed duplicates are counted so the renderer can
+  // say so instead of silently truncating.
   function displayedPlaylists(playlists) {
-    return playlists.filter(function (playlist) {
-      return !playlist.name.endsWith(derivedPlaylistSuffix);
-    });
+    const seenNames = new Set([likedSourceName]);
+    const visible = [];
+    let shadowedCount = 0;
+    for (const playlist of playlists) {
+      if (playlist.name.endsWith(derivedPlaylistSuffix)) {
+        continue;
+      }
+      if (seenNames.has(playlist.name)) {
+        shadowedCount += 1;
+        continue;
+      }
+      seenNames.add(playlist.name);
+      visible.push(playlist);
+    }
+    return {playlists: visible, shadowedCount: shadowedCount};
+  }
+
+  function shadowedRowsNote(shadowedCount) {
+    if (shadowedCount === 0) {
+      return "";
+    }
+    return shadowedCount === 1
+      ? "1 playlist with a duplicate name is hidden; rename it in Spotify to shuffle it."
+      : shadowedCount + " playlists with duplicate names are hidden; rename them in Spotify to shuffle them.";
   }
 
   function likedRowLabel(hasLibraryScope) {
-    return hasLibraryScope ? "Liked Songs" : "Liked Songs (reconnect Spotify to enable)";
+    return hasLibraryScope ? likedSourceName : likedSourceName + " (reconnect Spotify to enable)";
   }
 
   function emptySourceMessage(name) {
@@ -352,6 +380,7 @@ var TrueShuffle = (function () {
     hasScope: hasScope,
     likedRowLabel: likedRowLabel,
     likedPageURL: likedPageURL,
+    likedSourceName: likedSourceName,
     loadedTracksMessage: loadedTracksMessage,
     maxPlaylistTracks: maxPlaylistTracks,
     meEndpoint: meEndpoint,
@@ -366,6 +395,7 @@ var TrueShuffle = (function () {
     readTrackPage: readTrackPage,
     readUserId: readUserId,
     remainingTrackOffsets: remainingTrackOffsets,
+    shadowedRowsNote: shadowedRowsNote,
     shuffledURIs: shuffledURIs,
     shuffleResultMessage: shuffleResultMessage,
     SpotifyRequestError: SpotifyRequestError,
