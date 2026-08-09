@@ -102,7 +102,9 @@ Extend the README test section with the Node requirement and the exact built-in 
   - reproducible JavaScript test instructions.
 - Deployed TrueShuffle application
   - rebuilt and installed through the established remote repository workflow after validation;
-  - current host paths and the systemd unit retain their legacy `spotify-shuffle` identifiers.
+  - current host paths and the systemd unit use the `trueshuffle` name, but the
+    checkout, executable, and environment file remain split across
+    `/root/tools`, `/opt`, and `/etc` pending the self-contained layout plan.
 
 No changes are expected in `main.go`, `main_test.go`, the HTML/CSS, server configuration, or Spotify application configuration.
 
