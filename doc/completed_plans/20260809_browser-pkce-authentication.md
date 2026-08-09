@@ -224,3 +224,104 @@ or `cookie.txt` to the host.
   remote-checkout deployment behavior remain operational.
 - No playlist data is read and no Spotify playlist is modified by this
   increment.
+
+## Execution Notes
+
+Completed on 2026-08-09.
+
+Implemented behavior:
+
+- Added browser-owned Spotify Authorization Code with PKCE using Web Crypto,
+  `sessionStorage` for one-time state and verifier values, and a versioned
+  `localStorage` token record.
+- Added strict token-response validation, early-expiry refresh, refresh-token
+  replacement and fallback behavior, rejected-refresh cleanup, callback URL
+  cleanup, and browser-local logout.
+- Added exact `/callback`, `/app.js`, and `/api/config` routes. The Go process
+  now requires `SPOTIFY_CLIENT_ID`, exposes only that public value, and neither
+  receives nor persists user Spotify tokens.
+- Replaced the placeholder page with fixed first-party connect, status, and
+  disconnect controls. Added CSP, referrer, and MIME-sniffing headers without
+  adding a frontend dependency or inline script.
+- Updated the README with current configuration, scopes, storage behavior,
+  logout semantics, and the rule that advertisements and other third-party
+  JavaScript must remain off the authenticated origin.
+- Added `https://shuffle.p.a-9.co/callback` to the existing Spotify application
+  while preserving `http://127.0.0.1:8080/callback` and the application's other
+  editable fields.
+- Added the public client ID to the host-only root-readable
+  `/etc/spotify-shuffle/environment` file and referenced it through
+  `/etc/systemd/system/spotify-shuffle.service.d/oauth.conf`. No client secret,
+  user token, cookie, unit, or environment file entered Git or the remote
+  checkout.
+- Deployed clean implementation commit
+  `cfe9926073fbab419d36a356a36234218fc3486e` from the remote checkout. The
+  installed binary SHA-256 is
+  `68a15c2f06bfff207b422f2a225f6a7529aa964772954af61885641d93bd02e0`.
+
+Changed ownership boundaries:
+
+- `web/app.js` owns OAuth, browser token lifecycle, and fixed connection UI
+  state.
+- `main.go` owns required public configuration, embedded asset routing, and
+  browser response headers.
+- The browser owns user tokens; the production host owns only the public client
+  ID needed to render the OAuth client configuration.
+- The existing systemd unit, Apache vhosts, loopback listener, and TLS setup
+  retain their previous responsibilities and repository boundary.
+
+Deviations and corrections:
+
+- Spotify's dashboard write gateway required its normal two-request CSRF
+  challenge plus the rotated dashboard cookie. Initial write attempts returned
+  401 and made no change; the bounded browser-equivalent retry then succeeded,
+  and a read-back verified both callbacks and unchanged application fields.
+- The first remote build attempt stopped before staging because its
+  `go version -m` parser expected the wrong field layout. The old binary and
+  active service were verified unchanged, the parser was corrected to read
+  `build vcs.revision=...` and `build vcs.modified=...`, and the atomic
+  deployment then passed.
+- Local headless Chrome could execute same-origin callback rejection tests but
+  could not reach Spotify through the workspace network because of an
+  `ERR_SSL_PROTOCOL_ERROR`. Live authorization, reload persistence, logout,
+  and reconnection were therefore accepted on the user's iPhone as planned. A
+  disposable Node VM harness covered valid refresh, refresh-token fallback,
+  rejected refresh, and callback storage cleanup without retaining artifacts.
+
+Validation:
+
+- `gofmt -w main.go main_test.go`: completed.
+- `go test ./...`: passed locally and on the deployment host.
+- `go vet ./...`: passed.
+- `node --check web/app.js`: passed.
+- Missing `SPOTIFY_CLIENT_ID`: process exited immediately with the required
+  configuration error.
+- Local route and headless-browser checks: verified `/`, `/callback`,
+  `/app.js`, `/api/config`, `/healthz`, exact routing, security headers, public
+  config, callback rejection, and no inline script.
+- Disposable token-lifecycle harness: verified successful refresh, preservation
+  of an existing refresh token when Spotify omits a replacement, rejected-token
+  cleanup, authorization-code request construction, callback storage, and
+  temporary-state and URL cleanup.
+- Spotify dashboard read-back: verified one application, exactly the local and
+  production callbacks, and no unintended editable-field changes.
+- Production host: verified the exact deployed revision and checksum, enabled
+  and active service, zero automatic restarts, `DynamicUser=yes`, listener only
+  on `127.0.0.1:5107`, unchanged main unit and Apache vhost hashes, valid Apache
+  syntax, HTTPS root and callback status 200, `healthz` response `ok`, clean
+  local and remote checkouts, no warning journal entries, no user-token files,
+  and no temporary or rollback artifacts.
+- iPhone Safari: the user completed Spotify authorization, reloaded while
+  remaining connected, disconnected locally, and reconnected successfully.
+  No playlist endpoint was called and no playlist was modified.
+
+Repository commits:
+
+- `cfe9926` (`Add browser Spotify authentication`) contains the implementation,
+  focused tests, browser asset, page update, and README update.
+
+Unresolved blockers and excluded follow-up:
+
+- None. Playlist discovery, IndexedDB caching, shuffle execution, background
+  jobs, rate-limit handling, and any separately hosted advertising remain
+  deliberately outside this completed authentication increment.
