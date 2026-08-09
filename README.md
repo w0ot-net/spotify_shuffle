@@ -20,5 +20,32 @@ time on every shuffle.
 
 ## Status
 
-Initial project setup. Implementation and deployment instructions are still to
-come.
+The project currently provides a minimal Go HTTP server with a `GET /healthz`
+endpoint. Spotify integration and the browser interface remain planned work.
+
+## Run
+
+Go 1.22 or later is required.
+
+```sh
+go run .
+```
+
+The server listens on `127.0.0.1:8080` by default. Set `LISTEN_ADDR` to use a
+different address:
+
+```sh
+LISTEN_ADDR=127.0.0.1:9090 go run .
+```
+
+Check the running server with:
+
+```sh
+curl http://127.0.0.1:8080/healthz
+```
+
+## Test
+
+```sh
+go test ./...
+```
