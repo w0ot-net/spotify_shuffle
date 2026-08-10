@@ -23,8 +23,9 @@ The project currently provides a Go HTTP server with an embedded browser app,
 Spotify Authorization Code with PKCE, and a `GET /healthz` endpoint. After
 connecting Spotify, the page shows one list -- Liked Songs first, then the
 account's playlists -- and one click on any row shuffles it: the row's
-ordered track URIs are read (concurrently across pages, with a live progress
-bar and guards that fail the read if the source changes mid-flight), shuffled
+ordered track URIs are read (one paced request at a time, with a live
+progress bar and guards that fail the read if the source changes
+mid-flight), shuffled
 with unbiased crypto randomness, and written to that source's one stable
 derived playlist, `<source name> TrueShuffle` -- created private on first
 use and rewritten in place on every rerun, so repeat shuffles never
@@ -58,6 +59,13 @@ server:
 SPOTIFY_CLIENT_ID=your-client-id \
 TELEMETRY_DB_PATH=/tmp/trueshuffle-telemetry.sqlite go run .
 ```
+
+The app is deliberately gentle with Spotify's API: every request flows
+through one serial lane with at least a second between starts, a `429`'s
+`Retry-After` is honored with at most one retry, and a long cooldown is
+remembered across reloads. Large cold reads are therefore honest about
+time -- a multi-thousand-track source takes minutes on first shuffle, and
+seconds afterward thanks to the caches.
 
 `TELEMETRY_DB_PATH` names the SQLite file (created mode 0600) holding
 sanitized first-party rate-limit telemetry: bounded request timing, roles,

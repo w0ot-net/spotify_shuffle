@@ -32,7 +32,11 @@ Three layers, no external dependency in any of them:
    identity, and its fake IndexedDB hosts the delivery queue so cases can
    prove persistence precedes transport, only a `204` removes a report,
    reloads drain oldest-first, and corruption or missing storage degrades
-   to an honest one-shot send.
+   to an honest one-shot send. Timing is deterministic: a manually
+   advanced clock takes over `Date`, `performance`, and timers for pacing,
+   retry-delay, and cooldown cases, so no test sleeps on the wall clock;
+   harnesses without a clock run timers on the next microtask, which keeps
+   paced waits free everywhere else.
 
 ```sh
 go test ./...

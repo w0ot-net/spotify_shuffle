@@ -47,9 +47,8 @@ URIs only, never full track metadata -- and ask for `limit=50`, the
 documented maximum. The first page's response echoes the page size the
 server actually enforced and the authoritative total; the remaining offsets
 are computed from those echoed facts, never from documentation assumptions,
-and fetched by a pool of at most six concurrent requests. The pool
-dispatches nothing further after its first failure. Pages are assembled by
-offset, so completion order cannot affect the result.
+and fetched in order through the serial request lane below. The first
+failure stops the read with nothing else in flight.
 
 A summed raw item count differing from the reported total, or a moved
 snapshot, discards the read and asks the user to select the playlist again.
@@ -77,7 +76,7 @@ page-0 fetch the read needs anyway, and a match reuses the cached URIs at
 the cost of that one request (see the
 [data model](../browser/DATA_MODEL.md) for why the fingerprint is sound).
 With no snapshot, a full read pins the page-0 fingerprint,
-runs the same bounded pool and offset assembly as playlist reads, and
+runs the same ordered sequential reads as playlists, and
 verifies with the summed raw count plus a final probe that must reproduce
 the pinned fingerprint -- so a mid-read membership change fails the read
 even when it holds the total still, the strongest torn-read detection the
@@ -120,23 +119,43 @@ only refresh is a URI-only re-read, after which the added and removed
 counts are computed locally by a multiset comparison (see the
 [data model](../browser/DATA_MODEL.md)).
 
+## The serial request lane
+
+Every Web API call -- listing, reads, writes, verification -- passes
+through one paced lane: a single request in flight and at least 1,000 ms
+between starts, across operation boundaries. Page zero also stops an
+oversized Liked Songs read before another request is spent: a `total`
+above the 10,000-item playlist capacity fails there, since its write is
+impossible. The pace is deliberately conservative and unconfigurable --
+a 10,000-track cold shuffle takes minutes -- because Spotify's limits are
+unpublished and the recorded telemetry, not guesswork, is the basis for
+any future change to these values.
+
 ## Failure posture
 
-Integration failures fail fast. A non-OK response -- including `401`,
-`429`, and `5xx` -- surfaces as a listing, read, or write failure with a
-retry message naming the HTTP status and endpoint Spotify refused (for
-example "(Spotify returned 429 at /v1/me/tracks)"), so a live failure is
-diagnosable from the page alone; there is no retry, backoff, or
-`Retry-After` scheduling, and
-no failure is interpreted as revocation (see the
-[authorization model](../browser/AUTHORIZATION_MODEL.md)). This posture is a
-deliberate current stance, recorded when OAuth hardening deferred retry
-scheduling. Spotify's rate limits are unpublished, so any future governor
-is to be designed from recorded live observations, not ahead of them. Those
-observations now exist: every operation posts a sanitized report -- request
-roles, timing, statuses, `Retry-After` state, Spotify's structured reason,
-and the page-local rolling 30-second request count -- to the service's
-telemetry store, without changing any Spotify request.
+Integration failures fail fast, with one exception. A non-OK response
+surfaces as a listing, read, or write failure with a retry message naming
+the HTTP status and endpoint Spotify refused (for example "(Spotify
+returned 429 at /v1/me/tracks)"), so a live failure is diagnosable from
+the page alone; no failure is interpreted as revocation (see the
+[authorization model](../browser/AUTHORIZATION_MODEL.md)).
+
+The exception is an explicit `429`: it records one cooldown deadline from
+`Retry-After` (30 seconds when the guidance is missing or invalid), and
+the request is replayed exactly once when the wait is at most 60 seconds.
+A longer deadline fails locally with the absolute retry time, persists in
+the browser across reloads, and blocks new Spotify calls -- recorded as
+`cooldown-blocked` telemetry, never as an invented status -- until it
+expires. Only a `429` is ever replayed; network failures, other statuses,
+and malformed responses stay fail-fast so ambiguous writes are never
+duplicated. Disconnect aborts the active chain's transport and waits, and
+issues nothing further from that chain.
+
+Every operation posts a sanitized report -- request roles, timing,
+statuses, waits, attempts, `Retry-After` state, Spotify's structured
+reason, and the page-local rolling 30-second request count -- to the
+service's telemetry store; the recorded policy (`serial-1000ms-v1`) is the
+evidence base for tuning.
 
 ## Scopes
 

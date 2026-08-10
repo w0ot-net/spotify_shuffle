@@ -56,7 +56,10 @@ var telemetryEndpointClasses = enumSet(
 	"playlists", "playlist-metadata", "playlist-items", "liked-tracks",
 )
 var telemetryMethods = enumSet("GET", "POST", "PUT")
-var telemetryResults = enumSet("ok", "http-error", "network-error", "invalid-response")
+
+// cooldown-blocked marks a request the browser refused locally during a
+// stored cooldown; no Spotify request was sent, so it carries no status.
+var telemetryResults = enumSet("ok", "http-error", "network-error", "invalid-response", "cooldown-blocked")
 var telemetryRetryAfterStates = enumSet("absent", "valid", "invalid")
 
 var hexIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)

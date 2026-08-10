@@ -76,6 +76,15 @@ interpreted. The queue holds no Spotify, account, playlist, or track
 identity, so it deliberately survives disconnect -- pending operational
 evidence is not private account data.
 
+## The cooldown record is application state
+
+`localStorage` key `trueshuffle.spotify-cooldown.v1` holds `{until}`, the
+absolute deadline of the most recent Spotify `429` cooldown, so a reload
+cannot hammer Spotify during a pause. Invalid and expired records are
+removed on read; an unwritable store degrades to the same deadline in page
+memory. The record carries no account data and is application-level rather
+than authorization state, so disconnect does not clear it.
+
 ## Disconnect deletes the database
 
 Cached URIs are private account data. Disconnecting deletes the

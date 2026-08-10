@@ -127,6 +127,10 @@ count) and its numbers stay out of the `aria-live` status text so screen
 readers are not spammed per step. The loaded list sits in module-scope
 `loadedTracks` (`{id, snapshotId, uris}`). A failed load or write renders
 in the track status line and leaves the listing, the cache, the selection,
-and the stored token untouched; a late result from a chain that outlives
-its selection -- disconnecting mid-chain -- is dropped and issues no
-further writes.
+and the stored token untouched; disconnecting mid-chain aborts the chain's
+controller, so its pending wait or fetch rejects and nothing further --
+no page, no write batch -- is dispatched, while any late result is
+dropped. Requests themselves flow through the serial paced lane the
+[Spotify integration](../integration/SPOTIFY_INTEGRATION.md) page owns; an
+active long cooldown renders its absolute retry time in the status line
+instead of issuing a request.

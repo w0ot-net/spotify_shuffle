@@ -747,3 +747,34 @@ test("queueTelemetryReport bounds four entries preferring failures", () => {
   assert.equal(replaced.entries.filter((item) => item.id === "b").length, 1,
     "re-enqueueing a report id replaces rather than duplicates");
 });
+
+test("cooldownDeadline uses guidance when valid and 30 seconds otherwise", () => {
+  assert.equal(TrueShuffle.cooldownDeadline({state: "valid", seconds: 7}, now), now + 7000);
+  assert.equal(TrueShuffle.cooldownDeadline({state: "valid", seconds: 0}, now), now);
+  assert.equal(TrueShuffle.cooldownDeadline({state: "absent", seconds: null}, now), now + 30000);
+  assert.equal(TrueShuffle.cooldownDeadline({state: "invalid", seconds: null}, now), now + 30000);
+  assert.equal(TrueShuffle.fallbackCooldownMs, 30000);
+});
+
+test("validCooldownRecord requires a positive finite deadline", () => {
+  assert.equal(TrueShuffle.validCooldownRecord({until: now}), true);
+  assert.equal(TrueShuffle.validCooldownRecord(null), false);
+  assert.equal(TrueShuffle.validCooldownRecord({}), false);
+  assert.equal(TrueShuffle.validCooldownRecord({until: 0}), false);
+  assert.equal(TrueShuffle.validCooldownRecord({until: Infinity}), false);
+  assert.equal(TrueShuffle.validCooldownRecord({until: "soon"}), false);
+});
+
+test("shouldRetry429 allows one retry only for a short wait", () => {
+  assert.equal(TrueShuffle.shouldRetry429(1, 5000), true);
+  assert.equal(TrueShuffle.shouldRetry429(1, TrueShuffle.maxCooldownWaitMs), true);
+  assert.equal(TrueShuffle.shouldRetry429(1, TrueShuffle.maxCooldownWaitMs + 1), false);
+  assert.equal(TrueShuffle.shouldRetry429(2, 5000), false);
+});
+
+test("CooldownActiveError carries its deadline", () => {
+  const error = new TrueShuffle.CooldownActiveError("wait", now);
+  assert.equal(error.message, "wait");
+  assert.equal(error.until, now);
+  assert.equal(error instanceof TrueShuffle.CooldownActiveError, true);
+});

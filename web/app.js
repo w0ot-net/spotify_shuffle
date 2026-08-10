@@ -7,9 +7,12 @@
   // Spotify caps a page at 50 items and a library at 10,000 playlists.
   const playlistPageLimit = 50;
   const maxPlaylistPages = 200;
-  // Wide enough to matter for a 100-page playlist, narrow enough not to
-  // invite 429s; a 429 still fails the read under the fail-fast posture.
-  const maxConcurrentTrackRequests = 6;
+  // One serial request lane: a single in-flight Web API call with at least
+  // this gap between starts, across listing, reads, writes, and
+  // verification. Deliberately conservative and unconfigurable until the
+  // telemetry evidence justifies a different pace.
+  const minStartGapMs = 1000;
+  const cooldownStorageKey = "trueshuffle.spotify-cooldown.v1";
   const trackCacheDatabaseName = "trueshuffle";
   const trackCacheStoreName = "playlists";
   // Keep the legacy namespace so the product rename preserves browser sessions.
@@ -25,10 +28,9 @@
   ];
   const likedScope = "user-library-read";
   const playlistWriteScope = "playlist-modify-private";
-  // The request policy the telemetry reports: today's six-worker dispatcher
-  // with no pacing and no retries. The request-control plan changes only
-  // these values.
-  const telemetryPolicy = {policy: "pool-6-v0", minStartGapMs: 0, retryCeiling: 0};
+  // The request policy the telemetry reports: the serial paced lane with
+  // one allowed 429 retry.
+  const telemetryPolicy = {policy: "serial-1000ms-v1", minStartGapMs: minStartGapMs, retryCeiling: 1};
   const telemetryEndpoint = "/api/telemetry";
   // The delivery queue lives in its own database so disconnect can keep
   // deleting the private track cache without touching sanitized pending
@@ -64,6 +66,10 @@
   let pageSessionId = null;
   let requestStartHistory = [];
   let activeOperation = null;
+  // The serial lane's next allowed dispatch time, and the in-memory
+  // cooldown deadline that backs up an unwritable localStorage.
+  let nextRequestStartAt = 0;
+  let memoryCooldownUntil = 0;
 
   function renderWorking(message) {
     statusElement.textContent = message;
@@ -291,6 +297,9 @@
     }
     activeOperation = {
       startedMonotonic: window.performance.now(),
+      // Disconnect aborts this controller; the lane checks its signal
+      // before every wait and dispatch.
+      controller: new AbortController(),
       report: {
         report_id: randomHexId(),
         page_session_id: pageSessionId,
@@ -564,66 +573,192 @@
     return event;
   }
 
-  async function requestSpotify(token, url, role, body, method) {
-    const event = beginRequestEvent(url, role, body, method);
-    const dispatchedMonotonic = window.performance.now();
+  function storeCooldown(until) {
+    memoryCooldownUntil = until;
     try {
-      const options = {
-        headers: {Authorization: token.token_type + " " + token.access_token}
-      };
-      if (body !== undefined) {
-        options.method = method || "POST";
-        options.headers["Content-Type"] = "application/json";
-        options.body = JSON.stringify(body);
-      }
-      const response = await window.fetch(url, options);
-      if (!response.ok) {
-        let detail = "";
-        let reason = null;
-        try {
-          const payload = await response.json();
-          if (payload && payload.error) {
-            if (typeof payload.error.message === "string") {
-              detail = payload.error.message;
-            }
-            reason = TrueShuffle.normalizeSpotifyReason(payload.error.reason);
-          }
-        } catch (_) {
-          // A non-JSON error body adds nothing beyond the status.
+      window.localStorage.setItem(cooldownStorageKey, JSON.stringify({until: until}));
+    } catch (_) {
+      // The page-memory deadline still applies.
+    }
+  }
+
+  // The effective cooldown deadline, or null when none applies. Invalid and
+  // expired stored records are removed; the cooldown is application state,
+  // not authorization state, so disconnect never clears it.
+  function activeCooldownUntil() {
+    let until = memoryCooldownUntil;
+    try {
+      const raw = window.localStorage.getItem(cooldownStorageKey);
+      if (raw !== null) {
+        const record = JSON.parse(raw);
+        if (TrueShuffle.validCooldownRecord(record)) {
+          until = Math.max(until, record.until);
+        } else {
+          window.localStorage.removeItem(cooldownStorageKey);
         }
-        if (event !== null) {
-          const retryAfter = TrueShuffle.normalizeRetryAfter(
+      }
+    } catch (_) {
+      // An unreadable store leaves the page-memory deadline.
+    }
+    if (until <= Date.now()) {
+      if (until !== 0) {
+        memoryCooldownUntil = 0;
+        try {
+          window.localStorage.removeItem(cooldownStorageKey);
+        } catch (_) {
+          // Expired either way.
+        }
+      }
+      return null;
+    }
+    return until;
+  }
+
+  function cooldownError(until) {
+    const time = new Date(until).toTimeString().slice(0, 8);
+    return new TrueShuffle.CooldownActiveError(
+      "Spotify asked for a pause. Try again after " + time + ".", until
+    );
+  }
+
+  function abortableDelay(milliseconds, signal) {
+    return new Promise(function (resolve, reject) {
+      if (signal && signal.aborted) {
+        reject(new Error("the operation was cancelled"));
+        return;
+      }
+      function onAbort() {
+        if (signal) {
+          signal.removeEventListener("abort", onAbort);
+        }
+        reject(new Error("the operation was cancelled"));
+      }
+      window.setTimeout(function () {
+        if (signal) {
+          signal.removeEventListener("abort", onAbort);
+        }
+        resolve();
+      }, milliseconds);
+      if (signal) {
+        signal.addEventListener("abort", onAbort);
+      }
+    });
+  }
+
+  // One serial paced lane for every Web API request. A 429 stores one
+  // cooldown deadline and is retried at most once after a short wait; a
+  // long deadline fails locally -- recorded as cooldown-blocked, no request
+  // sent -- until it expires. Cancellation is checked before every wait and
+  // dispatch so nothing runs after disconnect.
+  async function requestSpotify(token, url, role, body, method) {
+    const operation = activeOperation;
+    const signal = operation !== null ? operation.controller.signal : null;
+    let attempt = 1;
+    for (;;) {
+      const now = Date.now();
+      let startAt = Math.max(nextRequestStartAt, now);
+      const cooldownUntil = activeCooldownUntil();
+      if (cooldownUntil !== null) {
+        if (cooldownUntil - now > TrueShuffle.maxCooldownWaitMs) {
+          const blocked = beginRequestEvent(url, role, body, method);
+          if (blocked !== null) {
+            blocked.attempt = attempt;
+            blocked.result = "cooldown-blocked";
+          }
+          throw cooldownError(cooldownUntil);
+        }
+        startAt = Math.max(startAt, cooldownUntil);
+      }
+      const waitMs = Math.max(0, startAt - now);
+      if (waitMs > 0) {
+        await abortableDelay(waitMs, signal);
+      }
+      if (signal && signal.aborted) {
+        throw new Error("the operation was cancelled");
+      }
+      nextRequestStartAt = Date.now() + minStartGapMs;
+      const event = beginRequestEvent(url, role, body, method);
+      if (event !== null) {
+        event.attempt = attempt;
+        event.scheduled_wait_ms = waitMs;
+      }
+      const dispatchedMonotonic = window.performance.now();
+      let retryAfter = {state: "absent", seconds: null};
+      try {
+        const options = {
+          headers: {Authorization: token.token_type + " " + token.access_token}
+        };
+        if (signal) {
+          options.signal = signal;
+        }
+        if (body !== undefined) {
+          options.method = method || "POST";
+          options.headers["Content-Type"] = "application/json";
+          options.body = JSON.stringify(body);
+        }
+        const response = await window.fetch(url, options);
+        if (!response.ok) {
+          let detail = "";
+          let reason = null;
+          try {
+            const payload = await response.json();
+            if (payload && payload.error) {
+              if (typeof payload.error.message === "string") {
+                detail = payload.error.message;
+              }
+              reason = TrueShuffle.normalizeSpotifyReason(payload.error.reason);
+            }
+          } catch (_) {
+            // A non-JSON error body adds nothing beyond the status.
+          }
+          retryAfter = TrueShuffle.normalizeRetryAfter(
             response.headers.get("Retry-After")
           );
-          event.result = "http-error";
+          if (event !== null) {
+            event.result = "http-error";
+            event.status = response.status;
+            event.retry_after_state = retryAfter.state;
+            event.retry_after_seconds = retryAfter.seconds;
+            event.reason = reason;
+          }
+          throw new TrueShuffle.SpotifyRequestError(response.status, new URL(url).pathname, detail);
+        }
+        if (event !== null) {
+          // Set before parsing so a malformed success body keeps this label.
+          event.result = "invalid-response";
           event.status = response.status;
-          event.retry_after_state = retryAfter.state;
-          event.retry_after_seconds = retryAfter.seconds;
-          event.reason = reason;
         }
-        throw new TrueShuffle.SpotifyRequestError(response.status, new URL(url).pathname, detail);
-      }
-      if (event !== null) {
-        // Set before parsing so a malformed success body keeps this label.
-        event.result = "invalid-response";
-        event.status = response.status;
-      }
-      const payload = await response.json();
-      if (event !== null) {
-        event.result = "ok";
-        if (payload && Array.isArray(payload.items)) {
-          event.response_items = TrueShuffle.normalizeTelemetryCount(payload.items.length);
+        const payload = await response.json();
+        if (event !== null) {
+          event.result = "ok";
+          if (payload && Array.isArray(payload.items)) {
+            event.response_items = TrueShuffle.normalizeTelemetryCount(payload.items.length);
+          }
+          if (payload && Number.isInteger(payload.total)) {
+            event.server_total = TrueShuffle.normalizeTelemetryCount(payload.total);
+          }
         }
-        if (payload && Number.isInteger(payload.total)) {
-          event.server_total = TrueShuffle.normalizeTelemetryCount(payload.total);
+        return payload;
+      } catch (error) {
+        if (error instanceof TrueShuffle.SpotifyRequestError && error.status === 429) {
+          const deadline = TrueShuffle.cooldownDeadline(retryAfter, Date.now());
+          storeCooldown(deadline);
+          const wait = deadline - Date.now();
+          if (TrueShuffle.shouldRetry429(attempt, wait) && !(signal && signal.aborted)) {
+            attempt += 1;
+            continue;
+          }
+          if (wait > TrueShuffle.maxCooldownWaitMs) {
+            throw cooldownError(deadline);
+          }
         }
-      }
-      return payload;
-    } finally {
-      if (event !== null) {
-        event.duration_ms = Math.max(0, Math.round(
-          window.performance.now() - dispatchedMonotonic
-        ));
+        throw error;
+      } finally {
+        if (event !== null) {
+          event.duration_ms = Math.max(0, Math.round(
+            window.performance.now() - dispatchedMonotonic
+          ));
+        }
       }
     }
   }
@@ -667,34 +802,16 @@
     }
   }
 
+  // Pages are read in order through the serial lane; the first failure
+  // stops the read with nothing else in flight.
   async function fetchTrackPages(token, urlForOffset, offsets, readPage, role, onPage) {
     const pages = [];
-    let nextIndex = 0;
-    let failure = null;
-    async function worker() {
-      // Nothing further is dispatched after the first failure, so a failed
-      // read costs at most the requests already in flight.
-      while (nextIndex < offsets.length && failure === null) {
-        const offset = offsets[nextIndex];
-        nextIndex += 1;
-        try {
-          const page = readPage(
-            await requestSpotify(token, urlForOffset(offset), role)
-          );
-          pages.push({offset: offset, count: page.count, uris: page.uris});
-          onPage(page.count);
-        } catch (error) {
-          failure = failure || error;
-        }
-      }
-    }
-    const workers = [];
-    for (let slot = 0; slot < Math.min(maxConcurrentTrackRequests, offsets.length); slot += 1) {
-      workers.push(worker());
-    }
-    await Promise.all(workers);
-    if (failure !== null) {
-      throw failure;
+    for (const offset of offsets) {
+      const page = readPage(
+        await requestSpotify(token, urlForOffset(offset), role)
+      );
+      pages.push({offset: offset, count: page.count, uris: page.uris});
+      onPage(page.count);
     }
     return pages;
   }
@@ -854,6 +971,10 @@
       if (!selectionActive(playlist)) {
         return null;
       }
+      if (error instanceof TrueShuffle.CooldownActiveError) {
+        renderTrackStatus(error.message);
+        return null;
+      }
       renderTrackStatus(error instanceof TrueShuffle.PlaylistChangedError
         ? "This playlist changed while loading. Select it again."
         : "Tracks could not be loaded" + failureDetail(error) +
@@ -910,6 +1031,11 @@
       if (!selectionActive(source)) {
         return null;
       }
+      // Page zero already proves an oversized library; spend no further
+      // request on a read whose write is impossible.
+      if (firstPage.total > TrueShuffle.maxPlaylistTracks) {
+        return {capacity: firstPage.total};
+      }
       if (cached !== null && TrueShuffle.likedRecordMatches(cached, firstPage)) {
         loadedTracks = {id: source.id, snapshotId: null, uris: cached.uris};
         renderTrackStatus(TrueShuffle.loadedTracksMessage(cached.uris.length, null, null));
@@ -940,6 +1066,10 @@
       return {uris: uris, changes: changes};
     } catch (error) {
       if (!selectionActive(source)) {
+        return null;
+      }
+      if (error instanceof TrueShuffle.CooldownActiveError) {
+        renderTrackStatus(error.message);
         return null;
       }
       renderTrackStatus(error instanceof TrueShuffle.PlaylistChangedError
@@ -1021,6 +1151,13 @@
       if (!selectionActive(source)) {
         return false;
       }
+      if (error instanceof TrueShuffle.CooldownActiveError) {
+        renderTrackStatus(target === null
+          ? "The shuffled playlist could not be created. " + error.message
+          : "\"" + target.name + "\" may be incomplete. " + error.message +
+            " Shuffle again afterward.");
+        return false;
+      }
       renderTrackStatus(target === null
         ? "The shuffled playlist could not be created" + failureDetail(error) + ". Try again."
         : "\"" + target.name + "\" may be incomplete" + failureDetail(error) +
@@ -1040,6 +1177,12 @@
         : await loadPlaylistSource(token, source);
       if (loaded === null) {
         finishOperation(operation, selectedPlaylist === null ? "abandoned" : "load-failed");
+        return;
+      }
+      if (loaded.capacity !== undefined) {
+        renderTrackStatus("\"" + source.name + "\" holds more than 10,000 tracks, the most a playlist can contain.");
+        setOperationContext({source_total: loaded.capacity, source_disposition: "capacity-rejected"});
+        finishOperation(operation, "capacity-rejected");
         return;
       }
       setOperationContext({source_total: loaded.uris.length});
@@ -1133,9 +1276,11 @@
     let playlists;
     try {
       playlists = await fetchPlaylists(token);
-    } catch (_) {
+    } catch (error) {
       // A failed listing is not proof of revocation, so the token is kept.
-      renderPlaylistStatus("Playlists could not be loaded. Reload to try again.");
+      renderPlaylistStatus(error instanceof TrueShuffle.CooldownActiveError
+        ? error.message + " Reload afterward."
+        : "Playlists could not be loaded. Reload to try again.");
       finishOperation(operation, "listing-failed");
       return;
     }
@@ -1281,6 +1426,11 @@
 
   logoutButton.addEventListener("click", function () {
     logoutButton.disabled = true;
+    // Abort the active chain first so no later page or write batch can be
+    // dispatched after the page state is cleared.
+    if (activeOperation !== null) {
+      activeOperation.controller.abort();
+    }
     clearPendingAuthorization();
     clearStoredToken();
     deleteTrackCache();

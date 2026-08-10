@@ -392,12 +392,23 @@ function createHarness(options) {
     }
   };
   const telemetryReports = [];
+  const clock = options.clock || null;
   const window = {
     crypto: webcrypto,
     localStorage: localStorage,
     sessionStorage: sessionStorage,
     // Monotonic-enough for tests: durations only need to be non-negative.
-    performance: {now: () => Date.now()},
+    // A manual clock takes over time and timers for pacing cases; without
+    // one, timers fire on the next microtask so paced waits cost nothing.
+    performance: {now: () => (clock ? clock.now : Date.now())},
+    setTimeout(callback, milliseconds) {
+      if (clock) {
+        clock.timers.push({at: clock.now + milliseconds, callback: callback});
+      } else {
+        Promise.resolve().then(callback);
+      }
+      return 0;
+    },
     // Left undefined unless a test supplies a fake: the app must degrade to
     // uncached reads in a browser without usable IndexedDB.
     indexedDB: options.indexedDB,
@@ -411,7 +422,10 @@ function createHarness(options) {
       return Buffer.from(value, "binary").toString("base64");
     },
     async fetch(url, requestOptions) {
-      requests.push({url: url, options: requestOptions});
+      if (requestOptions && requestOptions.signal && requestOptions.signal.aborted) {
+        throw new Error("the operation was cancelled");
+      }
+      requests.push({url: url, options: requestOptions, at: clock ? clock.now : null});
       if (url === "/api/config") {
         return jsonResponse(200, {spotify_client_id: "test-client-id"});
       }
@@ -448,7 +462,8 @@ function createHarness(options) {
       return new FakeElement(false);
     }
   };
-  const context = vm.createContext({
+  const contextGlobals = {
+    AbortController: AbortController,
     Buffer: Buffer,
     TextEncoder: TextEncoder,
     URL: URL,
@@ -456,7 +471,17 @@ function createHarness(options) {
     Uint8Array: Uint8Array,
     document: document,
     window: window
-  });
+  };
+  if (clock) {
+    // Shadow the realm Date so app time follows the manual clock; the
+    // subclass keeps `new Date(value)` working for message formatting.
+    contextGlobals.Date = class extends Date {
+      static now() {
+        return clock.now;
+      }
+    };
+  }
+  const context = vm.createContext(contextGlobals);
 
   // Match the served page: pure.js defines the TrueShuffle global app.js reads.
   vm.runInContext(pureSource, context, {filename: "web/pure.js"});
@@ -480,6 +505,42 @@ function createHarness(options) {
 
 function playlistButtons(harness) {
   return harness.playlistsElement.children.map((item) => item.children[0]);
+}
+
+// A manually advanced clock for pacing and cooldown cases: timers queue
+// against it and fire only when time moves. run() alternates settling
+// microtasks with firing due timers until neither produces work; drain()
+// keeps jumping to the next timer until none remain.
+function manualClock(startAt) {
+  const clock = {
+    now: startAt || 1770000000000,
+    timers: [],
+    async run() {
+      for (;;) {
+        await settle(4);
+        const due = clock.timers.filter((timer) => timer.at <= clock.now);
+        if (due.length === 0) {
+          return;
+        }
+        clock.timers = clock.timers.filter((timer) => timer.at > clock.now);
+        due.sort((a, b) => a.at - b.at).forEach((timer) => timer.callback());
+      }
+    },
+    async advance(milliseconds) {
+      clock.now += milliseconds;
+      await clock.run();
+    },
+    async drain() {
+      for (;;) {
+        await clock.run();
+        if (clock.timers.length === 0) {
+          return;
+        }
+        clock.now = Math.min(...clock.timers.map((timer) => timer.at));
+      }
+    }
+  };
+  return clock;
 }
 
 async function settle(rounds) {
@@ -824,59 +885,50 @@ test("a playlist chain reads every page and writes batched to its target", async
   assert.equal(playlistButtons(harness)[1].disabled, false);
 });
 
-test("track pages dispatch through a bounded pool and assemble out of order", async () => {
+test("track pages read sequentially in offset order with paced starts", async () => {
   const uris = [];
-  for (let index = 0; index < 8; index += 1) {
+  for (let index = 0; index < 4; index += 1) {
     uris.push("spotify:track:" + index);
   }
-  const deferredByOffset = new Map();
+  const clock = manualClock();
   const backend = makeWriteBackend();
   const harness = createHarness(Object.assign({
+    clock: clock,
     localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
-    playlistHandler: () => playlistPage([{id: "big", name: "Big", items: {total: 8}}])
+    playlistHandler: () => playlistPage([{id: "big", name: "Big", items: {total: 4}}])
   }, backendOptions(backend, (url) => {
     if (url === snapshotURL("big")) {
       return snapshotPage("snap-1");
     }
-    if (url === trackURL("big", 0)) {
-      // The echoed limit of 1 is what the remaining offsets step by, so
-      // documentation assumptions about the page size cannot matter.
-      return playlistItemPageResponse(1, 8, [uris[0]]);
-    }
     const offset = Number(new URL(url).searchParams.get("offset"));
-    const entry = deferred();
-    deferredByOffset.set(offset, entry);
-    return entry.promise;
+    // The echoed limit of 1 is what the remaining offsets step by, so
+    // documentation assumptions about the page size cannot matter.
+    return playlistItemPageResponse(1, 4, [uris[offset]]);
   })));
 
-  await settle();
+  await clock.drain();
   playlistButtons(harness)[1].click();
-  await settle();
+  await clock.drain();
 
-  // Page 0 revealed 7 remaining pages; the pool holds 6 in flight.
-  assert.deepEqual([...deferredByOffset.keys()], [1, 2, 3, 4, 5, 6]);
-  assert.equal(harness.trackStatusElement.textContent, "Loading tracks...");
-  assert.equal(playlistButtons(harness)[1].disabled, true);
-  // Page 0 also made progress determinate: server-truth max, one page done.
-  assert.equal(harness.trackProgressElement.hidden, false);
-  assert.equal(harness.trackProgressElement.max, 8);
-  assert.equal(harness.trackProgressElement.value, 1);
-
-  deferredByOffset.get(3).resolve(playlistItemPageResponse(1, 8, [uris[3]]));
-  await settle();
-  assert.ok(deferredByOffset.has(7), "a freed slot dispatches the next page");
-  assert.equal(harness.trackProgressElement.value, 2, "a completed page advances the bar");
-
-  for (const offset of [7, 1, 6, 2, 5, 4]) {
-    deferredByOffset.get(offset).resolve(playlistItemPageResponse(1, 8, [uris[offset]]));
+  assert.match(harness.trackStatusElement.textContent, /^Created "Big TrueShuffle" with 4 tracks in \d+\.\ds\.$/);
+  const spotify = harness.requests.filter(
+    (request) => request.url.startsWith("https://api.spotify.com/")
+  );
+  const pageOffsets = spotify
+    .filter((request) => request.url.includes("/items?"))
+    .map((request) => Number(new URL(request.url).searchParams.get("offset")));
+  assert.deepEqual(pageOffsets, [0, 1, 2, 3], "pages dispatch in offset order");
+  for (let index = 1; index < spotify.length; index += 1) {
+    assert.ok(spotify[index].at - spotify[index - 1].at >= 1000,
+      "starts are at least one second apart, including across phases");
   }
-  await settle();
-
-  assert.match(harness.trackStatusElement.textContent, /^Created "Big TrueShuffle" with 8 tracks in \d+\.\ds\.$/);
-  assert.equal(harness.trackProgressElement.hidden, true);
-  assert.equal(playlistButtons(harness)[1].disabled, false);
+  const shuffle = harness.telemetryReports.find((report) => report.kind === "playlist-shuffle");
+  assert.equal(shuffle.policy, "serial-1000ms-v1");
+  assert.equal(shuffle.policy_min_gap_ms, 1000);
+  assert.equal(shuffle.policy_retry_ceiling, 1);
+  assert.ok(shuffle.events.slice(1).every((event) => event.scheduled_wait_ms >= 1000 - 1),
+    "every request after the first records its paced wait");
 });
-
 test("a snapshot change during the read fails it and disturbs nothing else", async () => {
   let snapshotCalls = 0;
   const rawToken = JSON.stringify(currentToken());
@@ -1666,7 +1718,7 @@ test("one click on a cold playlist reports sanitized full-chain evidence", async
   const listing = harness.telemetryReports[0];
   assert.equal(listing.kind, "playlist-list");
   assert.equal(listing.terminal_phase, "complete");
-  assert.equal(listing.policy, "pool-6-v0");
+  assert.equal(listing.policy, "serial-1000ms-v1");
   assert.deepEqual(listing.events.map((event) => event.role), ["playlist-list-page"]);
 
   const shuffle = harness.telemetryReports[1];
@@ -1768,35 +1820,35 @@ test("telemetry transport failure never disturbs the operation", async () => {
   assert.match(harness.trackStatusElement.textContent, /^Created "Liked Songs TrueShuffle" /);
 });
 
-test("an oversized library reports truncated capacity-rejected evidence", async () => {
-  const uris = [];
-  for (let index = 0; index < 13000; index += 1) {
-    uris.push("spotify:track:liked" + index);
-  }
+test("an oversized library stops after page zero with capacity evidence", async () => {
   const backend = makeWriteBackend();
   const harness = createHarness(Object.assign({
     localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
-    likedHandler: steadyLikedHandler(50, uris)
+    likedHandler: (url) => {
+      assert.equal(url, likedURL(0), "no request beyond page zero is dispatched");
+      return savedTrackPageResponse(50, 13000, ["spotify:track:a"]);
+    }
   }, backendOptions(backend)));
 
   await settle();
   playlistButtons(harness)[0].click();
-  await settle(40);
+  await settle();
 
   assert.equal(backend.writes.length, 0, "an oversized library writes nothing");
-  const shuffle = harness.telemetryReports[1];
-  assert.equal(shuffle.kind, "liked-shuffle");
+  assert.equal(
+    harness.requests.filter((request) =>
+      request.url.startsWith("https://api.spotify.com/v1/me/tracks")).length,
+    1,
+    "the read spends exactly its opening page"
+  );
+  assert.match(harness.trackStatusElement.textContent, /holds more than 10,000 tracks/);
+  const shuffle = harness.telemetryReports.find((report) => report.kind === "liked-shuffle");
   assert.equal(shuffle.terminal_phase, "capacity-rejected");
   assert.equal(shuffle.source_disposition, "capacity-rejected");
   assert.equal(shuffle.source_total, 13000);
-  assert.equal(shuffle.request_count, 261,
-    "page zero, the offsets, and the fingerprint probe are all counted");
-  assert.equal(shuffle.truncated, true);
-  assert.ok(shuffle.events.length <= 256);
-  assert.ok(shuffle.peak_window_count >= 261,
-    "the peak rolling count sees the whole burst");
+  assert.equal(shuffle.request_count, 1);
+  assert.equal(shuffle.truncated, false);
 });
-
 test("an unacknowledged report stays queued and a reload delivers it", async () => {
   const indexedDB = new FakeIndexedDB();
   const backend = makeWriteBackend();
@@ -1934,4 +1986,184 @@ test("without usable IndexedDB delivery degrades to one-shot and says so", async
     assert.equal(report.delivery_storage, "queue-unavailable");
   }
   assert.match(harness.trackStatusElement.textContent, /^Created /);
+});
+
+test("a short 429 is retried once after the advertised delay", async () => {
+  const clock = manualClock();
+  let listingCalls = 0;
+  const harness = createHarness({
+    clock: clock,
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    playlistHandler: () => {
+      listingCalls += 1;
+      return listingCalls === 1
+        ? jsonResponse(429, {error: {status: 429, message: "slow down"}}, null, {"Retry-After": "7"})
+        : playlistPage([{id: "first", name: "Morning", items: {total: 1}}]);
+    }
+  });
+
+  await clock.drain();
+
+  assert.equal(listingCalls, 2, "the 429 is retried exactly once");
+  assert.match(harness.playlistStatusElement.textContent, /^Select a playlist/);
+  const spotify = harness.requests.filter((request) => request.url.startsWith(playlistsEndpoint));
+  assert.ok(spotify[1].at - spotify[0].at >= 7000, "the retry honors the advertised delay");
+  const listing = harness.telemetryReports[0];
+  assert.deepEqual(listing.events.map((event) => [event.attempt, event.result]),
+    [[1, "http-error"], [2, "ok"]]);
+  assert.ok(listing.events[1].scheduled_wait_ms >= 7000);
+});
+
+test("a 429 without usable guidance waits the 30-second fallback", async () => {
+  const clock = manualClock();
+  let listingCalls = 0;
+  const harness = createHarness({
+    clock: clock,
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    playlistHandler: () => {
+      listingCalls += 1;
+      return listingCalls === 1
+        ? jsonResponse(429, {error: {status: 429, message: "slow down"}}, null, {"Retry-After": "soon"})
+        : playlistPage([]);
+    }
+  });
+
+  await clock.drain();
+
+  assert.equal(listingCalls, 2);
+  const spotify = harness.requests.filter((request) => request.url.startsWith(playlistsEndpoint));
+  assert.ok(spotify[1].at - spotify[0].at >= 30000, "invalid guidance becomes the 30-second fallback");
+  assert.equal(harness.telemetryReports[0].events[0].retry_after_state, "invalid");
+});
+
+test("a second 429 stops without another retry", async () => {
+  const clock = manualClock();
+  let listingCalls = 0;
+  const harness = createHarness({
+    clock: clock,
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    playlistHandler: () => {
+      listingCalls += 1;
+      return jsonResponse(429, {error: {status: 429, message: "still limited"}}, null, {"Retry-After": "5"});
+    }
+  });
+
+  await clock.drain();
+
+  assert.equal(listingCalls, 2, "no third attempt is ever dispatched");
+  assert.match(harness.playlistStatusElement.textContent, /^Playlists could not be loaded/);
+  assert.deepEqual(
+    harness.telemetryReports[0].events.map((event) => [event.attempt, event.status]),
+    [[1, 429], [2, 429]]
+  );
+});
+
+test("network failures and other statuses are never retried", async () => {
+  let networkCalls = 0;
+  const networkHarness = createHarness({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    playlistHandler: () => {
+      networkCalls += 1;
+      throw new Error("network unavailable");
+    }
+  });
+  await settle();
+  assert.equal(networkCalls, 1);
+  assert.match(networkHarness.playlistStatusElement.textContent, /^Playlists could not be loaded/);
+
+  let serverCalls = 0;
+  const serverHarness = createHarness({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    playlistHandler: () => {
+      serverCalls += 1;
+      return jsonResponse(500, {error: {status: 500, message: "boom"}});
+    }
+  });
+  await settle();
+  assert.equal(serverCalls, 1);
+  assert.match(serverHarness.playlistStatusElement.textContent, /^Playlists could not be loaded/);
+});
+
+test("a long cooldown blocks locally, survives reload, and expires", async () => {
+  const clock = manualClock();
+  const localStorage = new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())});
+  let listingCalls = 0;
+  const first = createHarness({
+    clock: clock,
+    localStorage: localStorage,
+    playlistHandler: () => {
+      listingCalls += 1;
+      return jsonResponse(429, {error: {status: 429, message: "cool down"}}, null, {"Retry-After": "3600"});
+    }
+  });
+  await clock.drain();
+
+  assert.equal(listingCalls, 1, "a long deadline is never retried");
+  assert.match(
+    first.playlistStatusElement.textContent,
+    /^Spotify asked for a pause\. Try again after \d{2}:\d{2}:\d{2}\. Reload afterward\.$/
+  );
+  assert.ok(localStorage.getItem("trueshuffle.spotify-cooldown.v1") !== null,
+    "the deadline is persisted");
+
+  const blocked = createHarness({
+    clock: clock,
+    localStorage: localStorage,
+    playlistHandler: () => {
+      throw new Error("no Spotify call may happen during the cooldown");
+    }
+  });
+  await clock.drain();
+
+  assert.equal(
+    blocked.requests.filter((request) => request.url.startsWith("https://api.spotify.com/")).length,
+    0,
+    "a reload during the cooldown issues no Spotify call"
+  );
+  assert.match(blocked.playlistStatusElement.textContent, /^Spotify asked for a pause/);
+  const blockedEvent = blocked.telemetryReports[0].events[0];
+  assert.equal(blockedEvent.result, "cooldown-blocked");
+  assert.equal(blockedEvent.status, null, "no Spotify status is invented");
+
+  clock.now += 3601 * 1000;
+  const recovered = createHarness({
+    clock: clock,
+    localStorage: localStorage,
+    playlistHandler: () => playlistPage([])
+  });
+  await clock.drain();
+  assert.match(recovered.playlistStatusElement.textContent, /^Select a playlist/);
+  assert.equal(localStorage.getItem("trueshuffle.spotify-cooldown.v1"), null,
+    "the expired record is removed");
+});
+
+test("disconnect aborts a pending paced wait and dispatches nothing after", async () => {
+  const clock = manualClock();
+  const backend = makeWriteBackend();
+  const harness = createHarness(Object.assign({
+    clock: clock,
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    likedHandler: steadyLikedHandler(50, Array.from({length: 150}, (_, index) => "spotify:track:" + index))
+  }, backendOptions(backend)));
+
+  await clock.drain();
+  playlistButtons(harness)[0].click();
+  await clock.advance(1000);
+  const likedRequestsBefore = harness.requests.filter(
+    (request) => request.url.startsWith("https://api.spotify.com/v1/me/tracks")
+  ).length;
+  assert.ok(likedRequestsBefore >= 1, "the read began before disconnect");
+
+  harness.logoutButton.click();
+  await clock.drain();
+
+  assert.equal(
+    harness.requests.filter(
+      (request) => request.url.startsWith("https://api.spotify.com/v1/me/tracks")
+    ).length,
+    likedRequestsBefore,
+    "no page is dispatched after the abort"
+  );
+  assert.equal(backend.writes.length, 0, "no write batch follows a cancelled chain");
+  assert.equal(harness.trackStatusElement.textContent, "");
 });

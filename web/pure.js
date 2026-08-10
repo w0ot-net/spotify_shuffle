@@ -20,6 +20,14 @@ var TrueShuffle = (function () {
   class TokenRejectedError extends Error {}
   class AuthorizationRevokedError extends TokenRejectedError {}
   class PlaylistChangedError extends Error {}
+  // A locally enforced Spotify cooldown: no request was sent. Carries the
+  // absolute deadline so callers can render the retry time.
+  class CooldownActiveError extends Error {
+    constructor(message, until) {
+      super(message);
+      this.until = until;
+    }
+  }
   // A non-OK Web API response; carries the status, request path, and
   // Spotify's own error message so failure messages can name what was
   // refused, where, and in Spotify's words.
@@ -431,6 +439,32 @@ var TrueShuffle = (function () {
   const maxTelemetryEvents = 256;
   const maxTelemetryReportLength = 60 * 1024;
 
+  // The 429 policy: one deadline per response, 30 seconds when Spotify's
+  // guidance is missing or invalid (the span Spotify states for its rate
+  // limiter), one retry only when the wait is short, a local block
+  // otherwise.
+  const fallbackCooldownMs = 30 * 1000;
+  const maxCooldownWaitMs = 60 * 1000;
+
+  function cooldownDeadline(retryAfter, now) {
+    return now + (retryAfter.state === "valid"
+      ? retryAfter.seconds * 1000
+      : fallbackCooldownMs);
+  }
+
+  function validCooldownRecord(value) {
+    return value !== null &&
+      typeof value === "object" &&
+      typeof value.until === "number" && Number.isFinite(value.until) &&
+      value.until > 0;
+  }
+
+  // Only an explicit 429 is safe to replay, exactly once, and only when
+  // the advertised wait is short; every other failure stays fail-fast.
+  function shouldRetry429(attempt, waitMs) {
+    return attempt === 1 && waitMs <= maxCooldownWaitMs;
+  }
+
   // Failure-preserving truncation: drop the oldest successes first, then the
   // oldest events outright. Window counts computed at dispatch are retained
   // as recorded, never recomputed from the truncated list.
@@ -534,9 +568,15 @@ var TrueShuffle = (function () {
 
   return {
     AuthorizationRevokedError: AuthorizationRevokedError,
+    CooldownActiveError: CooldownActiveError,
     PlaylistChangedError: PlaylistChangedError,
     TokenRejectedError: TokenRejectedError,
     addTracksURL: addTracksURL,
+    cooldownDeadline: cooldownDeadline,
+    fallbackCooldownMs: fallbackCooldownMs,
+    maxCooldownWaitMs: maxCooldownWaitMs,
+    shouldRetry429: shouldRetry429,
+    validCooldownRecord: validCooldownRecord,
     assembleTrackPages: assembleTrackPages,
     buildTokenRecord: buildTokenRecord,
     countTrackChanges: countTrackChanges,

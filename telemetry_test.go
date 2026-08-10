@@ -249,6 +249,12 @@ func TestTelemetryIntakeRejectsInvalidInput(t *testing.T) {
 	if recorder.Code != http.StatusMethodNotAllowed {
 		t.Errorf("GET /api/telemetry status = %d, want 405", recorder.Code)
 	}
+
+	blocked := validTestReport("0123456789abcdef0123456789abcdef")
+	blocked.Events[0].Result = "cooldown-blocked"
+	if err := validateTelemetryReport(&blocked); err != nil {
+		t.Errorf("cooldown-blocked event rejected: %v", err)
+	}
 }
 
 func TestTelemetryIntakeChecksBrowserProvenance(t *testing.T) {
