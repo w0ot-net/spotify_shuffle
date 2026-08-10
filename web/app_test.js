@@ -380,10 +380,11 @@ function createHarness(options) {
   const waitStatusElement = new FakeElement(true);
   const cancelButton = new FakeElement(true);
   const playlistsElement = new FakeElement(true);
-  const backgroundSelect = new FakeElement(false);
-  backgroundSelect.value = "ribbon";
+  const backgroundButtons = {};
+  for (const choice of ["ribbon", "weave", "veil", "orbit", "tide", "prism"]) {
+    backgroundButtons[choice] = new FakeElement(false);
+  }
   const elements = {
-    background: backgroundSelect,
     status: statusElement,
     connect: connectButton,
     logout: logoutButton,
@@ -395,6 +396,9 @@ function createHarness(options) {
     cancel: cancelButton,
     playlists: playlistsElement
   };
+  for (const [choice, button] of Object.entries(backgroundButtons)) {
+    elements["background-" + choice] = button;
+  }
   const localStorage = options.localStorage || new FakeStorage();
   const sessionStorage = options.sessionStorage || new FakeStorage();
   const requests = [];
@@ -507,7 +511,7 @@ function createHarness(options) {
   vm.runInContext(pureSource, context, {filename: "web/pure.js"});
   vm.runInContext(appSource, context, {filename: "web/app.js"});
   return {
-    backgroundSelect: backgroundSelect,
+    backgroundButtons: backgroundButtons,
     cancelButton: cancelButton,
     connectButton: connectButton,
     historyPaths: historyPaths,
@@ -585,13 +589,20 @@ async function settleUntil(condition) {
   }
 }
 
+// The dock swatch contract: exactly the applied choice is pressed.
+function pressedBackgrounds(harness) {
+  return Object.entries(harness.backgroundButtons)
+    .filter(([, button]) => button.getAttribute("aria-pressed") === "true")
+    .map(([choice]) => choice);
+}
+
 test("a stored background preference is restored", async () => {
   const localStorage = new FakeStorage({[backgroundStorageKey]: "veil"});
   const harness = createHarness({localStorage: localStorage});
 
   await settle();
 
-  assert.equal(harness.backgroundSelect.value, "veil");
+  assert.deepEqual(pressedBackgrounds(harness), ["veil"]);
   assert.equal(harness.documentElement.dataset.background, "veil");
 });
 
@@ -601,24 +612,24 @@ test("an invalid background preference falls back to the ribbon default", async 
 
   await settle();
 
-  assert.equal(harness.backgroundSelect.value, "ribbon");
+  assert.deepEqual(pressedBackgrounds(harness), ["ribbon"]);
   assert.equal("background" in harness.documentElement.dataset, false);
   assert.equal(localStorage.getItem(backgroundStorageKey), null);
 });
 
-test("background changes apply immediately and persist when storage works", async () => {
+test("pressing a dock swatch applies immediately and persists when storage works", async () => {
   const localStorage = new FakeStorage();
   const harness = createHarness({localStorage: localStorage});
   await settle();
 
-  harness.backgroundSelect.value = "orbit";
-  harness.backgroundSelect.change();
+  harness.backgroundButtons.orbit.click();
   assert.equal(harness.documentElement.dataset.background, "orbit");
+  assert.deepEqual(pressedBackgrounds(harness), ["orbit"]);
   assert.equal(localStorage.getItem(backgroundStorageKey), "orbit");
 
-  harness.backgroundSelect.value = "ribbon";
-  harness.backgroundSelect.change();
+  harness.backgroundButtons.ribbon.click();
   assert.equal("background" in harness.documentElement.dataset, false);
+  assert.deepEqual(pressedBackgrounds(harness), ["ribbon"]);
   assert.equal(localStorage.getItem(backgroundStorageKey), null);
 });
 
@@ -627,10 +638,9 @@ test("background changes remain page-local when storage is unavailable", async (
   const harness = createHarness({localStorage: localStorage});
   await settle();
 
-  harness.backgroundSelect.value = "tide";
-  harness.backgroundSelect.change();
+  harness.backgroundButtons.tide.click();
 
-  assert.equal(harness.backgroundSelect.value, "tide");
+  assert.deepEqual(pressedBackgrounds(harness), ["tide"]);
   assert.equal(harness.documentElement.dataset.background, "tide");
 });
 

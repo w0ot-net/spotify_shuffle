@@ -10,10 +10,11 @@ produces which page state belongs to the
 
 ## Two scripts, one global
 
-`web/index.html` is a fixed document -- a visual-background selector, a
-status line, connect and disconnect buttons, a playlist status line, a
-track status line, a progress element, and the source list, plus two
-static fine-print lines: a connect note (permissions and the
+`web/index.html` is a fixed document -- a status line, connect and
+disconnect buttons, a playlist status line, a track status line, a progress
+element, the source list, and a bottom dock of visual-background swatch
+buttons (one per bundled image, the pressed one marked `aria-pressed`),
+plus two static fine-print lines: a connect note (permissions and the
 tokens-stay-in-this-browser fact, visible exactly when Connect is, by a
 stylesheet rule) and a workspace note (the derived-copy contract, the
 never-modified guarantee, and page-load freshness) -- that loads two

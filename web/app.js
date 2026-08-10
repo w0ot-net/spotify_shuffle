@@ -45,7 +45,10 @@
   const telemetryQueueKey = "envelope";
 
   const statusElement = document.getElementById("status");
-  const backgroundSelect = document.getElementById("background");
+  // One dock swatch per background choice; ids follow the vocabulary.
+  const backgroundButtons = TrueShuffle.backgroundChoices.map(function (choice) {
+    return {choice: choice, button: document.getElementById("background-" + choice)};
+  });
   const connectButton = document.getElementById("connect");
   const logoutButton = document.getElementById("logout");
   const playlistStatusElement = document.getElementById("playlist-status");
@@ -82,7 +85,9 @@
 
   function applyBackground(value) {
     const choice = TrueShuffle.normalizeBackgroundChoice(value);
-    backgroundSelect.value = choice;
+    for (const entry of backgroundButtons) {
+      entry.button.setAttribute("aria-pressed", entry.choice === choice ? "true" : "false");
+    }
     if (choice === TrueShuffle.defaultBackground) {
       delete document.documentElement.dataset.background;
     } else {
@@ -1553,8 +1558,10 @@
     });
   });
 
-  backgroundSelect.addEventListener("change", function () {
-    selectBackground(backgroundSelect.value);
+  backgroundButtons.forEach(function (entry) {
+    entry.button.addEventListener("click", function () {
+      selectBackground(entry.choice);
+    });
   });
 
   cancelButton.addEventListener("click", function () {

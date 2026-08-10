@@ -42,6 +42,10 @@ test("module exposes one global with the expected members", () => {
 
 test("normalizeBackgroundChoice accepts only the fixed visual vocabulary", () => {
   assert.equal(TrueShuffle.defaultBackground, "ribbon");
+  // Spread into this realm: the context's Array prototype fails strict
+  // deep equality against a host-realm literal.
+  assert.deepEqual([...TrueShuffle.backgroundChoices],
+    ["ribbon", "weave", "veil", "orbit", "tide", "prism"]);
   for (const choice of ["ribbon", "weave", "veil", "orbit", "tide", "prism"]) {
     assert.equal(TrueShuffle.normalizeBackgroundChoice(choice), choice);
   }

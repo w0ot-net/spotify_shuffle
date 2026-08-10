@@ -594,6 +594,7 @@ var TrueShuffle = (function () {
     validCooldownRecord: validCooldownRecord,
     waitCountdownMessage: waitCountdownMessage,
     assembleTrackPages: assembleTrackPages,
+    backgroundChoices: backgroundChoices,
     buildTokenRecord: buildTokenRecord,
     countTrackChanges: countTrackChanges,
     createPlaylistURL: createPlaylistURL,
