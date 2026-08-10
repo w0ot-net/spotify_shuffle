@@ -1,5 +1,7 @@
 # Plan: How-It-Works Explainer
 
+*Distilled: 2026-08-10*
+
 ## Summary
 
 The page gets one short, readable "How it works" section inside the
