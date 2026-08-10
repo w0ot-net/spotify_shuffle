@@ -67,7 +67,6 @@ func TestAppPage(t *testing.T) {
 				`id="background-veil"`,
 				`id="background-orbit"`,
 				`id="background-tide"`,
-				`id="background-prism"`,
 				`id="logout"`,
 				`id="playlists"`,
 				`id="track-status"`,
@@ -159,7 +158,6 @@ func TestStylesheet(t *testing.T) {
 		`url("/background-veil.jpg")`,
 		`url("/background-orbit.jpg")`,
 		`url("/background-tide.jpg")`,
-		`url("/background-prism.jpg")`,
 	} {
 		if !strings.Contains(recorder.Body.String(), marker) {
 			t.Errorf("stylesheet does not contain %q", marker)
@@ -173,7 +171,6 @@ func TestBackgroundJPEGs(t *testing.T) {
 		"/background-veil.jpg",
 		"/background-orbit.jpg",
 		"/background-tide.jpg",
-		"/background-prism.jpg",
 	} {
 		t.Run(path, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, path, nil)
@@ -233,7 +230,6 @@ func TestAppRoutesAreExact(t *testing.T) {
 		"/background-veil.jpg/",
 		"/background-orbit.jpg/",
 		"/background-tide.jpg/",
-		"/background-prism.jpg/",
 		"/api/config/",
 	} {
 		t.Run(path, func(t *testing.T) {

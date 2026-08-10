@@ -45,13 +45,13 @@ test("normalizeBackgroundChoice accepts only the fixed visual vocabulary", () =>
   // Spread into this realm: the context's Array prototype fails strict
   // deep equality against a host-realm literal.
   assert.deepEqual([...TrueShuffle.backgroundChoices],
-    ["weave", "veil", "orbit", "tide", "prism"]);
-  for (const choice of ["weave", "veil", "orbit", "tide", "prism"]) {
+    ["weave", "veil", "orbit", "tide"]);
+  for (const choice of ["weave", "veil", "orbit", "tide"]) {
     assert.equal(TrueShuffle.normalizeBackgroundChoice(choice), choice);
   }
-  // "ribbon" is the retired SVG default; stored records naming it fall
-  // back like any other unknown value.
-  for (const choice of [null, "", "unknown", "ribbon", 7]) {
+  // "ribbon" and "prism" are retired values; stored records naming them
+  // fall back like any other unknown value.
+  for (const choice of [null, "", "unknown", "ribbon", "prism", 7]) {
     assert.equal(TrueShuffle.normalizeBackgroundChoice(choice), "weave");
   }
 });

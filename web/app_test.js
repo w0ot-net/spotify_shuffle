@@ -381,7 +381,7 @@ function createHarness(options) {
   const cancelButton = new FakeElement(true);
   const playlistsElement = new FakeElement(true);
   const backgroundButtons = {};
-  for (const choice of ["weave", "veil", "orbit", "tide", "prism"]) {
+  for (const choice of ["weave", "veil", "orbit", "tide"]) {
     backgroundButtons[choice] = new FakeElement(false);
   }
   const elements = {

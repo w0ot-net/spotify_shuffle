@@ -7,7 +7,7 @@ that it never receives a Spotify token and stores nothing but sanitized
 telemetry. Return to the [architecture index](../README.md).
 
 The service is one static binary. `main.go` embeds `web/index.html`,
-`web/pure.js`, `web/app.js`, `web/styles.css`, and the five JPEG
+`web/pure.js`, `web/app.js`, `web/styles.css`, and the four JPEG
 backgrounds at build time. It keeps no sessions and sets
 no cookies. Every Spotify credential lives in the browser; the service's
 only secret-adjacent value is the public Spotify client ID, which is
@@ -27,7 +27,7 @@ no HTTP read route over it. A telemetry storage failure logs and answers
 | `GET /pure.js`    | embedded script, `text/javascript`, security headers  |
 | `GET /app.js`     | embedded script, `text/javascript`, security headers  |
 | `GET /styles.css` | embedded stylesheet, `text/css`, security headers     |
-| `GET /background-{weave,veil,orbit,tide,prism}.jpg` | embedded JPEG, security headers |
+| `GET /background-{weave,veil,orbit,tide}.jpg` | embedded JPEG, security headers |
 | `GET /api/config` | `{"spotify_client_id": ...}`, `no-store`, headers     |
 | `POST /api/telemetry` | `204` after a committed (or duplicate) report     |
 | `GET /healthz`    | `ok`, `text/plain`, no browser security headers       |

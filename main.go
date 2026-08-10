@@ -37,9 +37,6 @@ var backgroundOrbitJPEG []byte
 //go:embed web/background-tide.jpg
 var backgroundTideJPEG []byte
 
-//go:embed web/background-prism.jpg
-var backgroundPrismJPEG []byte
-
 func main() {
 	addr := os.Getenv("LISTEN_ADDR")
 	if addr == "" {
@@ -92,7 +89,6 @@ func newHandler(spotifyClientID string, telemetry *telemetryStore) (http.Handler
 	mux.HandleFunc("GET /background-veil.jpg", serveAsset(backgroundVeilJPEG, "image/jpeg"))
 	mux.HandleFunc("GET /background-orbit.jpg", serveAsset(backgroundOrbitJPEG, "image/jpeg"))
 	mux.HandleFunc("GET /background-tide.jpg", serveAsset(backgroundTideJPEG, "image/jpeg"))
-	mux.HandleFunc("GET /background-prism.jpg", serveAsset(backgroundPrismJPEG, "image/jpeg"))
 	mux.HandleFunc("GET /api/config", func(w http.ResponseWriter, _ *http.Request) {
 		setBrowserSecurityHeaders(w)
 		w.Header().Set("Cache-Control", "no-store")

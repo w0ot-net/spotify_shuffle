@@ -17,7 +17,7 @@ var TrueShuffle = (function () {
   // Spotify caps a playlist at 10,000 items.
   const maxPlaylistTracks = 10000;
   const defaultBackground = "weave";
-  const backgroundChoices = [defaultBackground, "veil", "orbit", "tide", "prism"];
+  const backgroundChoices = [defaultBackground, "veil", "orbit", "tide"];
 
   class TokenRejectedError extends Error {}
   class AuthorizationRevokedError extends TokenRejectedError {}
