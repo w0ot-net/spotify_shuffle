@@ -268,3 +268,42 @@ compatibility through read-only inspection. Retain no raw captures in Git.
 - The pure-Go release still builds with `CGO_ENABLED=0`, local runs create no
   repository artifact, and production state stays in the application data
   directory.
+
+## Execution Notes
+
+Executed 2026-08-09. Implementation commit `753e2e8`.
+
+Implemented as planned: bounded telemetry enums, `Retry-After` and reason
+normalization, the rolling 30-second history, failure-preserving
+truncation, and the doubly bounded report encoder in `web/pure.js`;
+role-tagged instrumentation inside `requestSpotify` with operation
+reports opened by the listing and each shuffle chain and submitted once,
+unawaited, in `web/app.js` (policy `pool-6-v0`, delivery `one-shot`);
+`telemetry.go` with `modernc.org/sqlite` pinned at v1.31.1 (Go 1.22,
+`CGO_ENABLED=0` verified), strict exact `POST /api/telemetry` intake
+(unknown-field rejection, 64 KiB body cap, provenance checks, 60/minute
+gate, idempotent duplicate `204`), schema version 1 with cascade events,
+two-tier retention inside the insert transaction, 4096-byte pages capped
+at 256 MiB, and mode-0600 enforcement; `TELEMETRY_DB_PATH` required at
+startup.
+
+Bounded deviations:
+
+- A 257-event report cannot fit under the 64 KiB body cap with the real
+  event encoding, so the event-count ceiling is tested directly as defense
+  in depth rather than over HTTP.
+- No process signal handling was added for "clean shutdown": the store
+  uses rollback journaling, which makes an abrupt exit safe, and `main`
+  has no shutdown path today; adding one would be new mechanism outside
+  the outcome.
+- `writeShuffled` now returns a success boolean so the chain can classify
+  its terminal phase -- an in-scope signature change with no behavior
+  change.
+
+Validation, all passing: `gofmt -l` (clean), `go test ./...` (including
+seven new telemetry test functions), `go vet ./...`, `CGO_ENABLED=0`
+build, `node --check` on both scripts, `node --test` (96 pass, 0 fail;
+twelve new browser tests; every prior assertion unmodified),
+`git diff --check`, and the inverted purity grep (which caught and forced
+the rename of a `history`-named parameter -- the greppable rule working
+as designed).
