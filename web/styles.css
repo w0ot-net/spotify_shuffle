@@ -51,27 +51,30 @@ body {
    dot grid for detail. It stays crisp in the open, and only the glass
    panels blur it -- which is what makes the frost visible. Fixed and
    decorative, behind all content. */
-/* A near-black canvas crossed by two sparse color wisps. Each wisp has a
-   crisp leading edge and a soft tail: the crisp edge is what the glass
-   blurs into frost -- it sweeps through the center, behind the panels, so
-   the effect is visible where it counts while the rest stays black. */
+/* A deep indigo-black canvas crossed by two sparse wisps -- violet and
+   blue. Each wisp has a crisp leading edge and a soft tail: the crisp edge
+   is what the glass blurs into frost as it sweeps through the center,
+   behind the panels, while the rest stays dark. A faint central glow lifts
+   the base off flat black. */
 .aurora {
   position: fixed;
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  background-color: #03050a;
+  background-color: #070610;
   background-image:
     linear-gradient(123deg,
       transparent 46%,
-      rgba(29, 185, 84, 0.42) 47%,
-      rgba(29, 185, 84, 0.1) 53%,
+      rgba(147, 89, 251, 0.44) 47%,
+      rgba(147, 89, 251, 0.12) 53%,
       transparent 63%),
     linear-gradient(104deg,
       transparent 60%,
-      rgba(36, 122, 150, 0.32) 61%,
-      rgba(36, 122, 150, 0.08) 67%,
-      transparent 77%);
+      rgba(66, 108, 224, 0.36) 61%,
+      rgba(66, 108, 224, 0.1) 67%,
+      transparent 77%),
+    radial-gradient(72vmax 50vmax at 50% 40%, rgba(96, 76, 180, 0.16), transparent 72%),
+    linear-gradient(160deg, #0a0716 0%, #05040c 60%, #0b0818 100%);
 }
 
 .app {
