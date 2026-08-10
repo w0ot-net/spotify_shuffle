@@ -606,10 +606,38 @@ for (const testCase of temporaryRefreshCases) {
     await settle();
 
     assert.equal(localStorage.getItem(tokenStorageKey), rawToken);
-    assert.equal(harness.statusElement.textContent, "Spotify could not be reached. Reload to try again.");
+    assert.equal(
+      harness.statusElement.textContent,
+      "Spotify could not be reached. Reload to try again, or disconnect this browser and connect again."
+    );
     assert.equal(harness.connectButton.hidden, true);
+    assert.equal(harness.logoutButton.hidden, false,
+      "the kept-token failure state must offer the disconnect escape");
+    assert.equal(harness.logoutButton.disabled, false);
   });
 }
+
+test("the refresh-failure disconnect escape recovers to the connect screen", async () => {
+  const rawToken = JSON.stringify(expiredToken());
+  const localStorage = new FakeStorage({[tokenStorageKey]: rawToken});
+  const harness = createHarness({
+    localStorage: localStorage,
+    tokenHandler: () => jsonResponse(500, {error: "server_error"})
+  });
+
+  await settle();
+  assert.equal(localStorage.getItem(tokenStorageKey), rawToken,
+    "nothing is cleared until the user taps the button");
+
+  harness.logoutButton.click();
+  await settle();
+
+  assert.equal(localStorage.getItem(tokenStorageKey), null, "the stale token is gone");
+  assert.equal(harness.statusElement.textContent, "Spotify was disconnected from this browser.");
+  assert.equal(harness.connectButton.hidden, false);
+  assert.equal(harness.connectButton.disabled, false);
+  assert.equal(harness.logoutButton.hidden, true);
+});
 
 test("invalid_grant clears authorization and requires reconnection", async () => {
   const localStorage = new FakeStorage({

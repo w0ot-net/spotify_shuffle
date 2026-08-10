@@ -63,7 +63,9 @@ Failure handling is per path, and the distinctions are load-bearing:
 - **Refresh failure clears authorization only on proof of revocation.** A
   parsed `invalid_grant` error raises `AuthorizationRevokedError` and clears
   the record; any other refresh failure (network, non-JSON, other errors)
-  keeps the record and asks for a reload.
+  keeps the record and asks for a reload, while also offering the ordinary
+  disconnect button as the on-page escape -- a token that never refreshes
+  again must not strand the browser behind its own kept record.
 - **A listing failure never clears authorization.** A failed playlist fetch
   is not evidence of revocation; the page stays connected and scopes the
   failure to the playlist section.

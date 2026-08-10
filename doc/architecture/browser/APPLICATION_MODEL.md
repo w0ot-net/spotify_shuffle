@@ -69,7 +69,8 @@ Connected paths finish by listing playlists.
 The page-state vocabulary the lifecycle renders:
 
 - connection states: working, disconnected, connected, and error (with or
-  without a reconnect button);
+  without a reconnect button; the kept-token refresh-failure error also
+  offers the disconnect button as its escape);
 - list states: loading, listed (always at least the Liked Songs row), and
   failure;
 - chain states, all in the track status line: loading (with the

@@ -97,11 +97,12 @@
     logoutButton.disabled = false;
   }
 
-  function renderError(message, canReconnect) {
+  function renderError(message, canReconnect, canDisconnect) {
     statusElement.textContent = message;
     connectButton.hidden = !canReconnect;
     connectButton.disabled = false;
-    logoutButton.hidden = true;
+    logoutButton.hidden = !canDisconnect;
+    logoutButton.disabled = false;
   }
 
   function redirectURI() {
@@ -1434,14 +1435,14 @@
       // An unusable queue never blocks initialization.
     }
     if (!window.crypto || !window.crypto.subtle) {
-      renderError("This browser does not support secure Spotify authorization.", false);
+      renderError("This browser does not support secure Spotify authorization.", false, false);
       return;
     }
 
     try {
       publicConfig = await loadPublicConfig();
     } catch (_) {
-      renderError("Spotify configuration could not be loaded.", false);
+      renderError("Spotify configuration could not be loaded.", false, false);
       return;
     }
 
@@ -1456,7 +1457,7 @@
         const message = error instanceof TokenRejectedError
           ? error.message
           : "Spotify could not be connected. Please try again.";
-        renderError(message, true);
+        renderError(message, true, false);
       }
       return;
     }
@@ -1479,10 +1480,13 @@
     } catch (error) {
       if (error instanceof AuthorizationRevokedError) {
         clearStoredToken();
-        renderError("Spotify authorization expired. Please connect again.", true);
+        renderError("Spotify authorization expired. Please connect again.", true, false);
         return;
       }
-      renderError("Spotify could not be reached. Reload to try again.", false);
+      // The kept token may never refresh again; the disconnect button is the
+      // on-page escape from that state.
+      renderError("Spotify could not be reached. Reload to try again, or " +
+        "disconnect this browser and connect again.", false, true);
       return;
     }
     renderConnected();
@@ -1493,7 +1497,7 @@
     connectButton.disabled = true;
     startAuthorization().catch(function () {
       clearPendingAuthorization();
-      renderError("Spotify authorization could not be started.", true);
+      renderError("Spotify authorization could not be started.", true, false);
     });
   });
 
