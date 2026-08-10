@@ -136,3 +136,17 @@ Validation, all passing in that worktree: `gofmt -l main.go main_test.go`
 scripts, `node --test web/pure_test.js web/app_test.js` three consecutive
 runs (121 pass, 0 fail each), `git diff --check`, and the inverted purity
 grep.
+Deployment, completed 2026-08-10 under the standing deployment direction
+and the private operations runbook, as one release with the companion
+plan (rebased onto the selectable-backgrounds commit that landed in
+parallel; both conflict resolutions kept both features): release
+`256d9208438484a3d4d18155ea0c0cc549ccf394`, embedded `vcs.revision`
+matching and `vcs.modified` false, binary SHA-256
+`5b9c2212d30a608cece5ad5fa2fa8a0b3eab122363bb684bf468eaefea413d54`. The
+full Go and JavaScript suites passed on the host (126 of 126 browser
+tests via direct `node` execution). The previous release `de4168f...`
+was retained and `current` switched atomically; after restart the
+service is active with zero restarts, loopback and public health are
+green, both fine-print lines and the result link are served on the
+public origin with their style rules, and no warning-or-higher journal
+entries appeared.
