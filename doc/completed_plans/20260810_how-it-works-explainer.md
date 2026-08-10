@@ -170,3 +170,32 @@ and the disconnect note only when Disconnect does.
 - The retired fine print is gone; the connect note is unchanged; the
   served-page test pins one phrase from each new block; `go test ./...`
   passes; the page still contains no inline style or script.
+
+## Execution Notes
+
+Executed 2026-08-10. Implementation commit `7c43f47`.
+
+Implemented as planned: the `class="explainer"` section closes the
+workspace panel where the retired fine-print line stood -- an uppercase
+muted "How it works" heading and the four statements as a tight list,
+0.8rem muted body against the 0.72rem fine print; the disconnect note
+joins the connection panel's actions under the mirrored
+`#logout[hidden] ~ .disconnect-note` rule; the served-page test pins
+`never pile up`, `shuffle turned off`, and `forgets this browser` in
+place of the retired `Originals are never`; the application model's
+fixed-document paragraph now names three explanatory blocks; the README
+status paragraph states the explainer and the shuffle-off guidance.
+
+One bounded deviation: the explainer's top margin is conditional
+(`.workspace > :not([hidden]) ~ .explainer`), so the disconnected panel
+-- where the explainer is the only visible content -- carries no stray
+top gap, while the connected panel keeps a clear seam between the list
+and the copy. Same outcome, purely presentational, no new mechanism
+beyond one selector.
+
+Validation, all passing: `gofmt -l main_test.go` (no output),
+`go test ./...`, `git diff --check`, and a local serve
+(`SPOTIFY_CLIENT_ID=dummy ... go run .`) confirming the page delivers
+the explainer and disconnect note, the stylesheet delivers their rules,
+and `/healthz` answers ok. No JavaScript changed, so the Node suites
+were not run, per the plan.
