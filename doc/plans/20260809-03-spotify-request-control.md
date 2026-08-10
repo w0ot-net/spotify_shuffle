@@ -28,6 +28,14 @@ A development quota can still refuse a necessary request; the browser should
 avoid bursts and known waste, obey Spotify's deadline, and leave concrete
 evidence when that is insufficient.
 
+This proceeds ahead of the deliberate rate-limit probe the repository's
+notes defer to, and supersedes the recorded stance that a governor waits
+for recorded observations: live quota refusals already interrupt real use,
+the telemetry plans deploy first so every wait and remaining 429 is
+measured from day one, and the fixed policy is deliberately conservative
+and unconfigurable precisely because no evidence exists yet to tune it.
+The documentation this plan migrates owns retiring that recorded deferral.
+
 ## Scope
 
 In scope:
@@ -133,6 +141,9 @@ logic.
   timing with a deterministic fake clock.
 - `README.md`: describe the conservative request policy and honest large-source
   duration.
+- `doc/notes.md`: revise the rate-limiter note -- the governor-deferral
+  sentence is superseded by this plan, while the deliberate probe remains a
+  deferred experiment for tuning the interval from evidence.
 - `doc/architecture/browser/APPLICATION_MODEL.md`,
   `doc/architecture/browser/DATA_MODEL.md`,
   `doc/architecture/integration/SPOTIFY_INTEGRATION.md`, and

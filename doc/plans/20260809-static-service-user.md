@@ -69,7 +69,12 @@ The production ownership boundary becomes:
 ```
 
 The unit names `User=trueshuffle` and `Group=trueshuffle`, no longer enables
-`DynamicUser`, and declares `/opt/trueshuffle/data` as its writable path. The
+`DynamicUser`, and declares `/opt/trueshuffle/data` as its writable path.
+`DynamicUser` implied a sandbox the unit never spelled out -- strict
+system protection, home protection, private tmp, IPC removal, and
+no-new-privileges -- so the switch must state explicit equivalents of those
+protections, with the data directory as the sole write allowance; otherwise
+replacing the identity silently weakens confinement. The
 existing root-owned executable remains readable and executable, while ordinary
 Unix permissions and the unit's filesystem restrictions keep the checkout,
 releases, and configuration unwritable. The current Go binary still writes
@@ -132,9 +137,11 @@ expected.
   shell, no password, and no usable home directory; do not require particular
   numeric IDs.
 - Inspect the installed unit with systemd's verifier and effective-property
-  view: `User` and `Group` are `trueshuffle`, dynamic users are disabled, and
-  the executable, environment file, restart policy, and listener configuration
-  are otherwise unchanged.
+  view: `User` and `Group` are `trueshuffle`, dynamic users are disabled, the
+  effective properties retain the sandbox `DynamicUser` used to imply (strict
+  system protection, private tmp, no-new-privileges) with only the data
+  directory writable, and the executable, environment file, restart policy,
+  and listener configuration are otherwise unchanged.
 - Verify `/opt/trueshuffle/data` resolves inside the application tree, is owned
   by the named account, and is mode `0700`. As that account, verify it is
   writable and that `repo/`, `releases/`, `current`, and `config/` are not.

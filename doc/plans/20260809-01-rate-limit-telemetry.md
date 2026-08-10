@@ -116,7 +116,10 @@ Operation context records whether the source was a playlist cache hit, Liked
 Songs fingerprint hit, verified network read, empty, capacity-rejected, or not
 applicable; whether the target was created, replaced, or untouched; source
 total; terminal phase; and a bounded request-policy label with numeric minimum
-start gap and retry ceiling. It also reserves delivery-storage state
+start gap and retry ceiling -- initially `pool-6-v0` with gap zero and retry
+ceiling zero, naming today's six-worker dispatcher so this plan executes
+standalone and the request-control plan later changes only the values. It
+also reserves delivery-storage state
 (`one-shot`, `indexeddb`, or `queue-unavailable`) and a bounded prior-drop count,
 initially `one-shot` and zero. The request-control and delivery plans can
 populate those fields without changing the SQLite schema. Raw URLs and payloads
@@ -157,7 +160,13 @@ ordinary routes remain available.
 **State is operational and rollback-safe.** After the prerequisite plan
 establishes ownership, production configuration sets `TELEMETRY_DB_PATH` to
 `/opt/trueshuffle/data/telemetry.sqlite`, inside the stable service account's
-sole writable data directory. Local examples use an OS temporary directory. A
+sole writable data directory. Requiring the path at startup is deliberate
+fail-fast -- a misdeployed service is loud at activation, never silently
+telemetry-less -- which makes ordering load-bearing: the environment edit (a
+separately authorized configuration change under the runbook) happens first,
+is ignored by the running release, and only then is the new release
+activated. Rollback reverts the binary alone; the added variable is harmless
+to the prior release. Local examples use an OS temporary directory. A
 rollback leaves the database untouched and harmless. Telemetry is disposable,
 with retention and corruption recovery but no backup requirement.
 
@@ -204,9 +213,12 @@ No page element or Spotify scope change is expected.
    and the nearest authoritative documentation.
 5. Validate, commit, and push. Before production deployment, execute and verify
    the stable-service-user plan if it remains open.
-6. Only with separate explicit live-operation direction, configure the database
-   path, deploy with rollback available, verify schema/ownership without
-   exposing contents, and update the private runbook.
+6. Only with separate explicit live-operation direction: first add the
+   database path to the protected environment (a separately authorized
+   configuration change the active binary ignores), then deploy the new
+   release with rollback available, verify schema/ownership without
+   exposing contents, and update the private runbook. A rollback reverts
+   the binary alone.
 
 ## Validation
 
