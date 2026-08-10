@@ -2,14 +2,15 @@
 
 ## Summary
 
-The page gets one short, readable "How it works" section -- a quiet glass
-panel between the connection panel and the workspace -- that states the
-product's contract and its real limitations before the first click: a
-shuffle writes a private "<em>playlist name</em> TrueShuffle" copy (created
-once, rewritten in place thereafter, originals never modified), the copy
-must be played with Spotify's own shuffle off, a large playlist's first
-shuffle takes minutes while repeats take seconds, and Spotify-side changes
-appear after a reload. A one-line note beside the Disconnect button adds
+The page gets one short, readable "How it works" section inside the
+workspace panel, taking the place of today's fine-print line, that states
+the product's contract and its real limitations before the first click:
+shuffling a playlist creates a private copy named after it (the first
+shuffle creates that copy, every later shuffle rewrites the same copy,
+originals never modified), the copy must be played with Spotify's own
+shuffle off, a large playlist's first shuffle takes minutes while repeats
+of an unchanged playlist take seconds, and Spotify-side changes appear
+after a reload. A one-line note beside the Disconnect button adds
 the last missing fact: disconnecting forgets this browser but does not
 revoke the grant in Spotify. Everything is static HTML plus stylesheet
 rules; no script changes.
@@ -32,23 +33,23 @@ visitor will read it.
 
 In scope:
 
-- A static explainer section in `web/index.html`: a small heading and four
-  short statements (derived-copy contract and never-modified guarantee;
-  play the copy with Spotify shuffle off; first-shuffle duration
-  expectation and fast repeats; reload for Spotify-side freshness).
-- Retiring the workspace fine-print line whose content the explainer
-  absorbs. The connect note (permissions and tokens-stay-here) is
-  unchanged.
+- A static explainer block inside the workspace panel in `web/index.html`:
+  a small heading and four short statements (derived-copy contract and
+  never-modified guarantee; play the copy with Spotify shuffle off;
+  first-shuffle duration expectation and fast unchanged repeats; reload
+  for Spotify-side freshness).
+- Retiring the workspace fine-print line, whose position and content the
+  explainer takes over. The connect note (permissions and
+  tokens-stay-here) is unchanged.
 - A one-line disconnect note in the connection panel's actions --
   "forgets this browser; revoke in your Spotify account settings" in
   substance -- visible exactly when the Disconnect button is, by the same
   sibling-selector mechanism the connect note uses.
-- Stylesheet rules in `web/styles.css`: the explainer panel reuses the
-  existing `.panel` glass treatment; its body text is muted but readable
-  (larger than `.fineprint`, smaller than body copy), with a small muted
-  heading in the existing type system; a
-  `#logout[hidden] ~ .disconnect-note` visibility rule mirroring the
-  connect note's.
+- Stylesheet rules in `web/styles.css`: explainer typography inside the
+  existing workspace panel -- body text muted but readable (larger than
+  `.fineprint`, smaller than body copy), a small muted heading in the
+  existing type system; a `#logout[hidden] ~ .disconnect-note` visibility
+  rule mirroring the connect note's.
 - `main_test.go` served-page markers: replace the retired
   `Originals are never` marker with one distinctive phrase pinned from
   each new block (the derived-copy sentence, the shuffle-off sentence,
@@ -76,25 +77,33 @@ Out of scope:
 ## Design
 
 **Static content, existing theme, no new mechanisms.** The explainer is a
-`<section class="panel explainer">` placed after the connection panel and
-before the workspace, so a visitor reads it before connecting and it
-remains in place afterward. It is plain HTML: one small heading ("How it
-works") and four short statements -- rendered as a tight list -- in the
-page's existing voice. No script touches it, so the purity rule, the app
-harness, and the CSP posture (no inline style or script) are all
-untouched.
+`class="explainer"` block inside the workspace panel, standing exactly
+where the retired fine-print line stands today, at the panel's end. The
+position is load-bearing: before connecting, everything else in the
+workspace carries `hidden`, so the explainer is the panel's entire
+visible content -- the visitor reads "How it works" directly beneath the
+Connect action, and the panel never renders as an empty glass box (which
+deleting the fine print without a replacement would cause, since `.panel`
+chrome -- tint, border, padding, shadow -- renders unconditionally).
+After connecting, the playlist list leads and the explainer settles
+beneath it as reference. No third panel is added; the page keeps its two.
+The block is plain HTML: one small heading ("How it works") and four
+short statements -- rendered as a tight list -- in the page's existing
+voice. No script touches it, so the purity rule, the app harness, and the
+CSP posture (no inline style or script) are all untouched.
 
 **Reference copy** (final wording may be tuned at implementation, keeping
 one pinned marker phrase per block intact):
 
-1. Pick a playlist and TrueShuffle writes a private copy --
-   "<em>playlist name</em> TrueShuffle" -- created the first time,
-   rewritten in place every time after. Your original playlists are never
-   modified.
+1. Shuffling a playlist creates a private copy named after it: shuffle
+   "Road Trip" and you get "Road Trip TrueShuffle". The first shuffle
+   creates that copy; every shuffle after rewrites the same copy, so
+   playlists never pile up. Your original playlist is never modified.
 2. Play the copy with Spotify's shuffle turned off: the random order is
    the playlist itself, and Spotify's own shuffle would reshuffle it.
 3. TrueShuffle is deliberately gentle with Spotify, so the first shuffle
-   of a large playlist takes a few minutes. Repeat shuffles take seconds.
+   of a large playlist takes a few minutes. Repeat shuffles of an
+   unchanged playlist take seconds.
 4. Changes made in Spotify after this page loads appear after a reload.
 
 **Visibility follows the action it explains.** The disconnect note copies
@@ -112,8 +121,8 @@ fine-print element is deleted, not hidden.
 
 ## Affected Components
 
-- `web/index.html`: the explainer section, the disconnect note, removal
-  of the workspace fine-print line.
+- `web/index.html`: the explainer block inside the workspace panel, the
+  disconnect note, removal of the workspace fine-print line.
 - `web/styles.css`: explainer typography and spacing; the disconnect-note
   visibility rule.
 - `main_test.go`: updated served-page markers pinning the new copy.
@@ -146,11 +155,14 @@ and the disconnect note only when Disconnect does.
 
 ## Success Criteria
 
-- Before connecting, a visitor can read on the page that a shuffle
-  creates and thereafter rewrites a private "name TrueShuffle" copy and
-  never modifies originals, that the copy must be played with Spotify's
-  shuffle off, that a large first shuffle takes minutes while repeats
-  take seconds, and that Spotify-side changes need a reload.
+- Before connecting, a visitor can read on the page that shuffling a
+  playlist creates a private copy named after it which every later
+  shuffle rewrites in place, that originals are never modified, that the
+  copy must be played with Spotify's shuffle off, that a large first
+  shuffle takes minutes while unchanged repeats take seconds, and that
+  Spotify-side changes need a reload.
+- The workspace panel is never an empty glass box: disconnected, its
+  visible content is exactly the explainer.
 - The disconnect note is visible exactly when the Disconnect button is,
   with no script involvement.
 - The retired fine print is gone; the connect note is unchanged; the
