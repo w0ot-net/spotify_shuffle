@@ -25,6 +25,9 @@
           to read your playlists and create your shuffled copies. Your Spotify
           login and tokens stay in this browser; the TrueShuffle server never
           sees your account.</p>
+        <p class="fineprint disconnect-note">Disconnecting forgets this browser
+          only. To revoke TrueShuffle&rsquo;s access entirely, remove it in
+          your Spotify account&rsquo;s app settings.</p>
       </div>
     </section>
     <section class="panel workspace">
@@ -35,11 +38,24 @@
       <p id="wait-status" hidden></p>
       <button id="cancel" type="button" hidden>Cancel</button>
       <ul id="playlists" hidden></ul>
-      <p class="fineprint">Each shuffle writes to a playlist&rsquo;s own
-        &ldquo;<em>playlist name</em> TrueShuffle&rdquo; copy, created
-        the first time and rewritten every time after. Originals are never
-        modified. Changes made in Spotify after this page loads appear after
-        a reload.</p>
+      <section class="explainer">
+        <h2>How it works</h2>
+        <ul>
+          <li>Shuffling a playlist creates a private copy named after it:
+            shuffle &ldquo;Road Trip&rdquo; and you get &ldquo;Road Trip
+            TrueShuffle&rdquo;. The first shuffle creates that copy; every
+            shuffle after rewrites the same copy, so playlists never pile up.
+            Your original playlist is never modified.</li>
+          <li>Play the copy with Spotify&rsquo;s shuffle turned off: the
+            random order is the playlist itself, and Spotify&rsquo;s own
+            shuffle would reshuffle it.</li>
+          <li>TrueShuffle is deliberately gentle with Spotify, so the first
+            shuffle of a large playlist takes a few minutes. Repeat shuffles
+            of an unchanged playlist take seconds.</li>
+          <li>Changes made in Spotify after this page loads appear after a
+            reload.</li>
+        </ul>
+      </section>
     </section>
     <noscript class="noscript">JavaScript is required to connect Spotify.</noscript>
   </main>

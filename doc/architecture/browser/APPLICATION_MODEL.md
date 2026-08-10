@@ -14,10 +14,16 @@ produces which page state belongs to the
 disconnect buttons, a playlist status line, a track status line, a progress
 element, the source list, and a bottom dock of visual-background swatch
 buttons (one per bundled image, the pressed one marked `aria-pressed`),
-plus two static fine-print lines: a connect note (permissions and the
+plus three static explanatory blocks: a connect note (permissions and the
 tokens-stay-in-this-browser fact, visible exactly when Connect is, by a
-stylesheet rule) and a workspace note (the derived-copy contract, the
-never-modified guarantee, and page-load freshness) -- that loads two
+stylesheet rule), a disconnect note (forgetting is browser-local and
+revocation lives in Spotify's app settings, visible exactly when
+Disconnect is, by the same rule shape), and a "How it works" explainer
+ending the workspace panel (the derived-copy contract by example, the
+never-modified guarantee, the play-with-Spotify-shuffle-off guidance, the
+slow-first/fast-unchanged-repeat expectation, and page-load freshness;
+while disconnected it is the panel's only visible content, so the panel
+is never an empty frame) -- that loads two
 classic scripts with `defer`, in order:
 
 1. `web/pure.js` defines a single `TrueShuffle` global containing the

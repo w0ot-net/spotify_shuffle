@@ -73,7 +73,9 @@ func TestAppPage(t *testing.T) {
 				`id="track-progress"`,
 				`id="open-target"`,
 				`sees your account.`,
-				`Originals are never`,
+				`never pile up`,
+				`shuffle turned off`,
+				`forgets this browser`,
 				`id="wait-status"`,
 				`id="cancel"`,
 			} {

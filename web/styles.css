@@ -168,9 +168,9 @@ h1 {
   background-image: url("/background-tide.jpg");
 }
 
-/* Contract fine print: quiet, muted, and short enough to be read. The
-   connect note's visibility follows the Connect button by stylesheet, so
-   the note is exactly as visible as the action it explains. */
+/* Contract fine print: quiet, muted, and short enough to be read. Each
+   note's visibility follows its button by stylesheet, so the note is
+   exactly as visible as the action it explains. */
 .fineprint {
   margin: 0.75rem 0 0;
   color: var(--muted);
@@ -180,6 +180,43 @@ h1 {
 
 #connect[hidden] ~ .connect-note {
   display: none;
+}
+
+#logout[hidden] ~ .disconnect-note {
+  display: none;
+}
+
+/* The read-once contract: quieter than body copy, louder than fine print,
+   because every visitor should read it. While disconnected it is the
+   workspace panel's only visible content, so the panel is never an empty
+   frame; the top gap exists only once something visible sits above it. */
+.explainer {
+  margin: 0;
+}
+
+.workspace > :not([hidden]) ~ .explainer {
+  margin-top: 0.9rem;
+}
+
+.explainer h2 {
+  margin: 0 0 0.5rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.explainer ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
+.explainer li + li {
+  margin-top: 0.5rem;
 }
 
 /* The one-tap route into a standing result: a quiet accent link, no
