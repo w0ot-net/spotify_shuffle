@@ -158,3 +158,15 @@ inverted purity grep.
 
 Live confirmation -- the stuck iPhone recovering entirely from the page
 -- is the user's next action after deployment.
+
+Deployment, completed 2026-08-10 under the standing deployment direction
+and the private operations runbook: release
+`de4168f9194bab4001588ec38e34e9ff5cc9c0ba`, embedded `vcs.revision`
+matching and `vcs.modified` false, binary SHA-256
+`a96331bbfd72188043851b9aaf1f46904a8b30825722983f6c74073f6b14eb50`. The
+full Go and JavaScript suites passed on the host (120 of 120 browser
+tests via direct `node` execution). The previous release `b2a41dc...`
+was retained and `current` switched atomically; after restart the
+service is active with zero restarts, loopback and public health are
+green, the escape message is served on the public origin, and no
+warning-or-higher journal entries appeared.
