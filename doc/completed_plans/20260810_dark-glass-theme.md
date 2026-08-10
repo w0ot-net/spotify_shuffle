@@ -180,3 +180,44 @@ on the deployed origin, the page links it, and the CSP header carries
 - The Go and browser suites pass, the browser suite unmodified.
 - The security and service pages and the README describe the stylesheet
   and the theme.
+
+## Execution Notes
+
+Executed 2026-08-10. Implementation commit `68400ac`.
+
+Implemented as planned: `style-src 'self'` added to
+`contentSecurityPolicy`; `serveScript` generalized to `serveAsset(content,
+contentType)` and `web/styles.css` embedded and routed at `GET /styles.css`
+with `text/css`; `web/index.html` restructured with the stylesheet link, a
+monospace riffle-shuffle banner (`aria-hidden`), a new tagline, and glass
+panel containers -- every id, `role`, `aria-live`, and `hidden` attribute
+preserved so no browser logic changed. `web/styles.css` is a dark theme
+with CSS-variable tokens: near-black ground with a faint green refraction
+glow, translucent `backdrop-filter` panels with luminous 1px edges, one
+Spotify-green accent on the connect action / selected row / focus ring,
+system-sans body with monospace wordmark and controls, source rows styled
+as a dealt stack with an `aria-pressed` selection state, themed progress
+and scrollbar, always-visible `:focus-visible` rings, and a
+`prefers-reduced-motion` fallback that drops the blur and transitions.
+
+Deviations: none in scope. Two things worth noting: no JavaScript file was
+touched, exactly as the boundary intended -- the sheet drives entirely off
+existing state attributes; and a live browser screenshot could not be
+captured (browser tooling unavailable this session), so the render was
+verified structurally (balanced braces, every state selector resolving to
+a real element, the `[hidden] { display: none !important }` override, and
+served CSP/content-type over a local server) rather than visually. A
+human glance at the deployed page is the remaining visual confirmation.
+
+Bounded additions to the plan's test list, both matching existing
+conventions: `main_test.go` also asserts the served page carries no inline
+`style=`/`<style>` (mirroring the no-inline-script check) and pins
+`style-src 'self'` in the CSP constant.
+
+Validation, all passing: `gofmt -l` clean, `go test ./...` (new
+`/styles.css` route, content-type, exact-route, CSP, and marker
+assertions), `go vet ./...`, `node --test web/pure_test.js
+web/app_test.js` (119 pass, 0 fail, unmodified -- proof the DOM
+restructure preserved every contract), `git diff --check`, and an ASCII
+check of the new files. Local server confirmed `/styles.css` returns 200
+`text/css` and the served CSP carries `style-src 'self'`.
