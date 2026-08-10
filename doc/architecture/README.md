@@ -19,8 +19,8 @@ its public configuration.
                |                playlist reads
                v                -> api.spotify.com
         +-----------------------------------------------+
-        | Go service: embedded assets, no storage,      |
-        | never receives a Spotify token                |
+        | Go service: embedded assets, sanitized        |
+        | telemetry storage, never receives a token     |
         +-----------------------------------------------+
 ```
 

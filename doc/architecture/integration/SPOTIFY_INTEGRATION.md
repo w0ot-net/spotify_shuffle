@@ -132,7 +132,11 @@ no failure is interpreted as revocation (see the
 [authorization model](../browser/AUTHORIZATION_MODEL.md)). This posture is a
 deliberate current stance, recorded when OAuth hardening deferred retry
 scheduling. Spotify's rate limits are unpublished, so any future governor
-is to be designed from recorded live observations, not ahead of them.
+is to be designed from recorded live observations, not ahead of them. Those
+observations now exist: every operation posts a sanitized report -- request
+roles, timing, statuses, `Retry-After` state, Spotify's structured reason,
+and the page-local rolling 30-second request count -- to the service's
+telemetry store, without changing any Spotify request.
 
 ## Scopes
 

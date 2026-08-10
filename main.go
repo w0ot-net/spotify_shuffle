@@ -28,7 +28,12 @@ func main() {
 		addr = defaultListenAddr
 	}
 
-	handler, err := newHandler(os.Getenv("SPOTIFY_CLIENT_ID"))
+	store, err := openTelemetryStore(os.Getenv("TELEMETRY_DB_PATH"))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	handler, err := newHandler(os.Getenv("SPOTIFY_CLIENT_ID"), store)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -38,13 +43,14 @@ func main() {
 	}
 }
 
-func newHandler(spotifyClientID string) (http.Handler, error) {
+func newHandler(spotifyClientID string, telemetry *telemetryStore) (http.Handler, error) {
 	spotifyClientID = strings.TrimSpace(spotifyClientID)
 	if spotifyClientID == "" {
 		return nil, errors.New("SPOTIFY_CLIENT_ID is required")
 	}
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/telemetry", newTelemetryIntake(telemetry, spotifyClientID).handle)
 	serveApp := func(w http.ResponseWriter, _ *http.Request) {
 		setBrowserSecurityHeaders(w)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")

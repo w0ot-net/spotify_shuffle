@@ -198,10 +198,18 @@ class FakeElement {
   }
 }
 
-function jsonResponse(status, payload, jsonError) {
+function jsonResponse(status, payload, jsonError, headers) {
+  const headerMap = headers || {};
   return {
     ok: status >= 200 && status < 300,
     status: status,
+    headers: {
+      get(name) {
+        return Object.prototype.hasOwnProperty.call(headerMap, name)
+          ? headerMap[name]
+          : null;
+      }
+    },
     async json() {
       if (jsonError) {
         throw jsonError;
@@ -383,10 +391,13 @@ function createHarness(options) {
       this.assigned = url;
     }
   };
+  const telemetryReports = [];
   const window = {
     crypto: webcrypto,
     localStorage: localStorage,
     sessionStorage: sessionStorage,
+    // Monotonic-enough for tests: durations only need to be non-negative.
+    performance: {now: () => Date.now()},
     // Left undefined unless a test supplies a fake: the app must degrade to
     // uncached reads in a browser without usable IndexedDB.
     indexedDB: options.indexedDB,
@@ -403,6 +414,13 @@ function createHarness(options) {
       requests.push({url: url, options: requestOptions});
       if (url === "/api/config") {
         return jsonResponse(200, {spotify_client_id: "test-client-id"});
+      }
+      if (url === "/api/telemetry") {
+        if (options.telemetryFailure) {
+          throw new Error("telemetry intake unavailable");
+        }
+        telemetryReports.push(JSON.parse(requestOptions.body));
+        return jsonResponse(204, null);
       }
       if (url === tokenEndpoint && options.tokenHandler) {
         return options.tokenHandler(requestOptions);
@@ -454,6 +472,7 @@ function createHarness(options) {
     requests: requests,
     sessionStorage: sessionStorage,
     statusElement: statusElement,
+    telemetryReports: telemetryReports,
     trackProgressElement: trackProgressElement,
     trackStatusElement: trackStatusElement
   };
@@ -1628,4 +1647,152 @@ test("an unavailable cache degrades the liked read to the full pull", async () =
     "the read proceeds uncached"
   );
   assert.match(harness.trackStatusElement.textContent, /^Created /);
+});
+
+test("one click on a cold playlist reports sanitized full-chain evidence", async () => {
+  const backend = makeWriteBackend();
+  const harness = createHarness(Object.assign({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    playlistHandler: () => playlistPage([
+      {id: "steady", name: "Morning", items: {total: 2}, snapshot_id: "snap-1"}
+    ])
+  }, backendOptions(backend, steadyTrackHandler("steady", "snap-1", 50, ["spotify:track:a", "spotify:track:b"]))));
+
+  await settle();
+  playlistButtons(harness)[1].click();
+  await settle();
+
+  assert.equal(harness.telemetryReports.length, 2, "the listing and the shuffle each report once");
+  const listing = harness.telemetryReports[0];
+  assert.equal(listing.kind, "playlist-list");
+  assert.equal(listing.terminal_phase, "complete");
+  assert.equal(listing.policy, "pool-6-v0");
+  assert.deepEqual(listing.events.map((event) => event.role), ["playlist-list-page"]);
+
+  const shuffle = harness.telemetryReports[1];
+  assert.equal(shuffle.kind, "playlist-shuffle");
+  assert.equal(shuffle.terminal_phase, "complete");
+  assert.equal(shuffle.source_disposition, "network-read");
+  assert.equal(shuffle.target_disposition, "created");
+  assert.equal(shuffle.source_total, 2);
+  assert.equal(shuffle.request_count, 6);
+  assert.equal(shuffle.truncated, false);
+  assert.deepEqual(shuffle.events.map((event) => event.role), [
+    "playlist-snapshot-pin", "playlist-items-page", "playlist-snapshot-verify",
+    "target-create", "target-append", "target-total-verify"
+  ]);
+  assert.equal(shuffle.events[0].window_count, 2,
+    "the rolling window spans the listing operation");
+  assert.equal(shuffle.page_session_id, listing.page_session_id);
+  assert.notEqual(shuffle.report_id, listing.report_id);
+  const itemsPage = shuffle.events[1];
+  assert.equal(itemsPage.page_offset, 0);
+  assert.equal(itemsPage.page_limit, 50);
+  assert.equal(itemsPage.server_total, 2);
+  assert.equal(itemsPage.response_items, 2);
+  assert.equal(itemsPage.method, "GET");
+  assert.equal(itemsPage.result, "ok");
+  assert.equal(shuffle.events[3].method, "POST");
+  assert.equal(shuffle.events[4].request_items, 2);
+
+  const serialized = JSON.stringify(harness.telemetryReports);
+  for (const secret of ["spotify:track", "Morning", "steady", "access-token", "Bearer", "TrueShuffle\\\"", "snap-1"]) {
+    assert.equal(serialized.includes(secret), false,
+      "telemetry must not contain " + secret);
+  }
+});
+
+test("a 429 with Retry-After and a structured reason is recorded", async () => {
+  const harness = createHarness({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    playlistHandler: () => jsonResponse(
+      429,
+      {error: {status: 429, message: "rate limited", reason: "QUOTA_EXCEEDED"}},
+      null,
+      {"Retry-After": "7"}
+    )
+  });
+
+  await settle();
+
+  assert.equal(harness.telemetryReports.length, 1);
+  const listing = harness.telemetryReports[0];
+  assert.equal(listing.terminal_phase, "listing-failed");
+  const event = listing.events[0];
+  assert.equal(event.result, "http-error");
+  assert.equal(event.status, 429);
+  assert.equal(event.retry_after_state, "valid");
+  assert.equal(event.retry_after_seconds, 7);
+  assert.equal(event.reason, "QUOTA_EXCEEDED");
+  assert.equal(JSON.stringify(listing).includes("rate limited"), false,
+    "Spotify's message text stays out of telemetry");
+});
+
+test("a liked fingerprint hit reports its disposition and single read request", async () => {
+  const uris = ["spotify:track:a", "spotify:track:b"];
+  const backend = makeWriteBackend();
+  const harness = createHarness(Object.assign({
+    indexedDB: new FakeIndexedDB(likedRecordSeed({
+      total: 2, head: uris, uris: uris, cached_at: 1
+    })),
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    likedHandler: steadyLikedHandler(50, uris)
+  }, backendOptions(backend)));
+
+  await settle();
+  playlistButtons(harness)[0].click();
+  await settle();
+
+  const shuffle = harness.telemetryReports[1];
+  assert.equal(shuffle.kind, "liked-shuffle");
+  assert.equal(shuffle.source_disposition, "liked-fingerprint-hit");
+  assert.equal(shuffle.terminal_phase, "complete");
+  const likedEvents = shuffle.events.filter((event) => event.endpoint_class === "liked-tracks");
+  assert.deepEqual(likedEvents.map((event) => event.role), ["liked-fingerprint-open"],
+    "a hit costs exactly the fingerprint page");
+});
+
+test("telemetry transport failure never disturbs the operation", async () => {
+  const backend = makeWriteBackend();
+  const harness = createHarness(Object.assign({
+    telemetryFailure: true,
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    likedHandler: steadyLikedHandler(50, ["spotify:track:a"])
+  }, backendOptions(backend)));
+
+  await settle();
+  playlistButtons(harness)[0].click();
+  await settle();
+
+  assert.equal(harness.telemetryReports.length, 0);
+  assert.match(harness.trackStatusElement.textContent, /^Created "Liked Songs TrueShuffle" /);
+});
+
+test("an oversized library reports truncated capacity-rejected evidence", async () => {
+  const uris = [];
+  for (let index = 0; index < 13000; index += 1) {
+    uris.push("spotify:track:liked" + index);
+  }
+  const backend = makeWriteBackend();
+  const harness = createHarness(Object.assign({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    likedHandler: steadyLikedHandler(50, uris)
+  }, backendOptions(backend)));
+
+  await settle();
+  playlistButtons(harness)[0].click();
+  await settle(40);
+
+  assert.equal(backend.writes.length, 0, "an oversized library writes nothing");
+  const shuffle = harness.telemetryReports[1];
+  assert.equal(shuffle.kind, "liked-shuffle");
+  assert.equal(shuffle.terminal_phase, "capacity-rejected");
+  assert.equal(shuffle.source_disposition, "capacity-rejected");
+  assert.equal(shuffle.source_total, 13000);
+  assert.equal(shuffle.request_count, 261,
+    "page zero, the offsets, and the fingerprint probe are all counted");
+  assert.equal(shuffle.truncated, true);
+  assert.ok(shuffle.events.length <= 256);
+  assert.ok(shuffle.peak_window_count >= 261,
+    "the peak rolling count sees the whole burst");
 });

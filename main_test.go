@@ -4,16 +4,28 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
 const testSpotifyClientID = "test-client-id"
 
+func testStore(t *testing.T) *telemetryStore {
+	t.Helper()
+
+	store, err := openTelemetryStore(filepath.Join(t.TempDir(), "telemetry.sqlite"))
+	if err != nil {
+		t.Fatalf("openTelemetryStore() error = %v", err)
+	}
+	t.Cleanup(func() { store.db.Close() })
+	return store
+}
+
 func testHandler(t *testing.T) http.Handler {
 	t.Helper()
 
-	handler, err := newHandler(testSpotifyClientID)
+	handler, err := newHandler(testSpotifyClientID, testStore(t))
 	if err != nil {
 		t.Fatalf("newHandler() error = %v", err)
 	}
@@ -22,7 +34,7 @@ func testHandler(t *testing.T) http.Handler {
 
 func TestNewHandlerRequiresSpotifyClientID(t *testing.T) {
 	for _, clientID := range []string{"", " \t\n"} {
-		if _, err := newHandler(clientID); err == nil {
+		if _, err := newHandler(clientID, testStore(t)); err == nil {
 			t.Errorf("newHandler(%q) error = nil, want configuration error", clientID)
 		}
 	}

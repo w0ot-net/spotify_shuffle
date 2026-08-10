@@ -22,7 +22,14 @@ Three layers, no external dependency in any of them:
 3. **`main_test.go` -- the served contract.** `httptest` against the real
    handler proves the route table and its exactness, content types, the
    literal CSP `connect-src` origins, the page's element markers, and that
-   `/pure.js` is loaded before `/app.js` by position.
+   `/pure.js` is loaded before `/app.js` by position. `telemetry_test.go`
+   proves the telemetry contract against temporary databases: secure
+   creation, strict validation, idempotent duplicate acknowledgement,
+   provenance and rate gates, failure-preserving retention, and that a
+   dead store answers `503` while every other route stays healthy. The
+   harness additionally captures submitted telemetry reports so wiring
+   cases can assert evidence content and the absence of any Spotify
+   identity.
 
 ```sh
 go test ./...

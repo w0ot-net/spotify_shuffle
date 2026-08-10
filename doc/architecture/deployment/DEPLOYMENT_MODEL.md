@@ -19,8 +19,15 @@ service-writable corner:
 |-- config/
 |   `-- environment            root-only (0600) service environment
 `-- data/                      trueshuffle:trueshuffle, mode 0700 -- the
-                               service account's only writable path
+                               service account's only writable path,
+                               holding telemetry.sqlite (mode 0600)
 ```
+
+The environment file supplies `TELEMETRY_DB_PATH`; because startup requires
+it, a configuration change adding the variable precedes the activation of a
+release that reads it, and rollback reverts the binary alone -- the
+variable is harmless to prior releases. The database is disposable
+operational state: rollback never touches it.
 
 ## Release identity
 

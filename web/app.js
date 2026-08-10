@@ -25,6 +25,11 @@
   ];
   const likedScope = "user-library-read";
   const playlistWriteScope = "playlist-modify-private";
+  // The request policy the telemetry reports: today's six-worker dispatcher
+  // with no pacing and no retries. The request-control plan changes only
+  // these values.
+  const telemetryPolicy = {policy: "pool-6-v0", minStartGapMs: 0, retryCeiling: 0};
+  const telemetryEndpoint = "/api/telemetry";
 
   const statusElement = document.getElementById("status");
   const connectButton = document.getElementById("connect");
@@ -46,6 +51,13 @@
   // The selected source's verified read: {id, snapshotId, uris}. Liked
   // Songs loads here too, with a null snapshotId.
   let loadedTracks = null;
+  // Telemetry: one report per operation, page-scoped session identity, and
+  // the page-lifetime request-start history behind the rolling 30-second
+  // pressure count. The history deliberately survives operation boundaries
+  // and disconnect within one page load.
+  let pageSessionId = null;
+  let requestStartHistory = [];
+  let activeOperation = null;
 
   function renderWorking(message) {
     statusElement.textContent = message;
@@ -255,29 +267,195 @@
     trackProgressElement.hidden = true;
   }
 
-  async function requestSpotify(token, url, body, method) {
-    const options = {
-      headers: {Authorization: token.token_type + " " + token.access_token}
-    };
-    if (body !== undefined) {
-      options.method = method || "POST";
-      options.headers["Content-Type"] = "application/json";
-      options.body = JSON.stringify(body);
+  function randomHexId() {
+    const bytes = new Uint8Array(16);
+    window.crypto.getRandomValues(bytes);
+    let hex = "";
+    for (const byte of bytes) {
+      hex += byte.toString(16).padStart(2, "0");
     }
-    const response = await window.fetch(url, options);
-    if (!response.ok) {
-      let detail = "";
-      try {
-        const payload = await response.json();
-        if (payload && payload.error && typeof payload.error.message === "string") {
-          detail = payload.error.message;
-        }
-      } catch (_) {
-        // A non-JSON error body adds nothing beyond the status.
+    return hex;
+  }
+
+  // One report per operation, opened by the listing and by each shuffle
+  // chain; the one-operation UI invariant keeps this module state safe.
+  function beginOperation(kind) {
+    if (pageSessionId === null) {
+      pageSessionId = randomHexId();
+    }
+    activeOperation = {
+      startedMonotonic: window.performance.now(),
+      report: {
+        report_id: randomHexId(),
+        page_session_id: pageSessionId,
+        kind: kind,
+        client_started_at: Date.now(),
+        client_ended_at: 0,
+        duration_ms: 0,
+        source_total: null,
+        source_disposition: "not-applicable",
+        target_disposition: "untouched",
+        terminal_phase: "abandoned",
+        policy: telemetryPolicy.policy,
+        policy_min_gap_ms: telemetryPolicy.minStartGapMs,
+        policy_retry_ceiling: telemetryPolicy.retryCeiling,
+        request_count: 0,
+        peak_window_count: 0,
+        truncated: false,
+        delivery_storage: "one-shot",
+        reports_dropped_before: 0,
+        events: []
       }
-      throw new TrueShuffle.SpotifyRequestError(response.status, new URL(url).pathname, detail);
+    };
+    return activeOperation;
+  }
+
+  function setOperationContext(fields) {
+    if (activeOperation !== null) {
+      Object.assign(activeOperation.report, fields);
     }
-    return response.json();
+  }
+
+  // Submission is one unawaited same-origin request; telemetry transport
+  // can never affect the operation that produced the report.
+  function finishOperation(operation, terminalPhase) {
+    if (operation === null || activeOperation !== operation) {
+      return;
+    }
+    activeOperation = null;
+    const report = operation.report;
+    report.terminal_phase = terminalPhase;
+    report.client_ended_at = Date.now();
+    report.duration_ms = Math.max(0, Math.round(
+      window.performance.now() - operation.startedMonotonic
+    ));
+    try {
+      window.fetch(telemetryEndpoint, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: TrueShuffle.encodeTelemetryReport(report),
+        keepalive: true,
+        credentials: "same-origin"
+      }).catch(function (_) {
+        // Lost telemetry is lost; the operation already rendered.
+      });
+    } catch (_) {
+      // An unavailable fetch is equivalent to lost transport.
+    }
+  }
+
+  // Opens the sanitized event for one dispatched request: bounded role,
+  // class, method, and workload numbers only -- raw URLs and payloads never
+  // leave this normalizer.
+  function beginRequestEvent(url, role, body, method) {
+    const rolled = TrueShuffle.rollingRequestHistory(requestStartHistory, Date.now());
+    requestStartHistory = rolled.starts;
+    if (activeOperation === null) {
+      return null;
+    }
+    const report = activeOperation.report;
+    report.request_count += 1;
+    if (rolled.count > report.peak_window_count) {
+      report.peak_window_count = rolled.count;
+    }
+    const parameters = new URL(url, "https://api.spotify.com").searchParams;
+    const rawOffset = parameters.get("offset");
+    const rawLimit = parameters.get("limit");
+    const event = {
+      role: role,
+      endpoint_class: TrueShuffle.telemetryEndpointClass(role),
+      method: body !== undefined ? (method || "POST") : "GET",
+      attempt: 1,
+      scheduled_wait_ms: 0,
+      started_at: Date.now(),
+      start_offset_ms: Math.max(0, Math.round(
+        window.performance.now() - activeOperation.startedMonotonic
+      )),
+      duration_ms: 0,
+      result: "network-error",
+      status: null,
+      retry_after_state: "absent",
+      retry_after_seconds: null,
+      reason: null,
+      request_items: body && Array.isArray(body.uris)
+        ? TrueShuffle.normalizeTelemetryCount(body.uris.length)
+        : null,
+      response_items: null,
+      page_offset: rawOffset === null
+        ? null
+        : TrueShuffle.normalizeTelemetryCount(Number(rawOffset)),
+      page_limit: rawLimit === null
+        ? null
+        : TrueShuffle.normalizeTelemetryCount(Number(rawLimit)),
+      server_total: null,
+      window_count: rolled.count
+    };
+    report.events.push(event);
+    return event;
+  }
+
+  async function requestSpotify(token, url, role, body, method) {
+    const event = beginRequestEvent(url, role, body, method);
+    const dispatchedMonotonic = window.performance.now();
+    try {
+      const options = {
+        headers: {Authorization: token.token_type + " " + token.access_token}
+      };
+      if (body !== undefined) {
+        options.method = method || "POST";
+        options.headers["Content-Type"] = "application/json";
+        options.body = JSON.stringify(body);
+      }
+      const response = await window.fetch(url, options);
+      if (!response.ok) {
+        let detail = "";
+        let reason = null;
+        try {
+          const payload = await response.json();
+          if (payload && payload.error) {
+            if (typeof payload.error.message === "string") {
+              detail = payload.error.message;
+            }
+            reason = TrueShuffle.normalizeSpotifyReason(payload.error.reason);
+          }
+        } catch (_) {
+          // A non-JSON error body adds nothing beyond the status.
+        }
+        if (event !== null) {
+          const retryAfter = TrueShuffle.normalizeRetryAfter(
+            response.headers.get("Retry-After")
+          );
+          event.result = "http-error";
+          event.status = response.status;
+          event.retry_after_state = retryAfter.state;
+          event.retry_after_seconds = retryAfter.seconds;
+          event.reason = reason;
+        }
+        throw new TrueShuffle.SpotifyRequestError(response.status, new URL(url).pathname, detail);
+      }
+      if (event !== null) {
+        // Set before parsing so a malformed success body keeps this label.
+        event.result = "invalid-response";
+        event.status = response.status;
+      }
+      const payload = await response.json();
+      if (event !== null) {
+        event.result = "ok";
+        if (payload && Array.isArray(payload.items)) {
+          event.response_items = TrueShuffle.normalizeTelemetryCount(payload.items.length);
+        }
+        if (payload && Number.isInteger(payload.total)) {
+          event.server_total = TrueShuffle.normalizeTelemetryCount(payload.total);
+        }
+      }
+      return payload;
+    } finally {
+      if (event !== null) {
+        event.duration_ms = Math.max(0, Math.round(
+          window.performance.now() - dispatchedMonotonic
+        ));
+      }
+    }
   }
 
   // Fail-fast stays, but blind messages cost live diagnosis time twice;
@@ -297,7 +475,7 @@
     const playlists = [];
     let url = playlistsEndpoint + "?limit=" + playlistPageLimit;
     for (let page = 0; page < maxPlaylistPages; page += 1) {
-      const payload = await requestSpotify(token, url);
+      const payload = await requestSpotify(token, url, "playlist-list-page");
       playlists.push(...TrueShuffle.readPlaylistPage(payload));
       if (typeof payload.next !== "string" || payload.next === "") {
         return playlists;
@@ -319,7 +497,7 @@
     }
   }
 
-  async function fetchTrackPages(token, urlForOffset, offsets, readPage, onPage) {
+  async function fetchTrackPages(token, urlForOffset, offsets, readPage, role, onPage) {
     const pages = [];
     let nextIndex = 0;
     let failure = null;
@@ -331,7 +509,7 @@
         nextIndex += 1;
         try {
           const page = readPage(
-            await requestSpotify(token, urlForOffset(offset))
+            await requestSpotify(token, urlForOffset(offset), role)
           );
           pages.push({offset: offset, count: page.count, uris: page.uris});
           onPage(page.count);
@@ -356,10 +534,10 @@
   // than silently assembling a corrupted order.
   async function readPlaylistTracks(token, playlistId, onProgress) {
     const pinnedSnapshot = TrueShuffle.readPlaylistSnapshot(
-      await requestSpotify(token, TrueShuffle.playlistSnapshotURL(playlistId))
+      await requestSpotify(token, TrueShuffle.playlistSnapshotURL(playlistId), "playlist-snapshot-pin")
     );
     const firstPage = TrueShuffle.readPlaylistItemPage(
-      await requestSpotify(token, TrueShuffle.trackPageURL(playlistId, 0))
+      await requestSpotify(token, TrueShuffle.trackPageURL(playlistId, 0), "playlist-items-page")
     );
     let loadedCount = firstPage.count;
     onProgress(loadedCount, firstPage.total);
@@ -368,14 +546,14 @@
     );
     const pages = await fetchTrackPages(token, function (offset) {
       return TrueShuffle.trackPageURL(playlistId, offset);
-    }, offsets, TrueShuffle.readPlaylistItemPage, function (pageCount) {
+    }, offsets, TrueShuffle.readPlaylistItemPage, "playlist-items-page", function (pageCount) {
       loadedCount += pageCount;
       onProgress(loadedCount, firstPage.total);
     });
     pages.push({offset: 0, count: firstPage.count, uris: firstPage.uris});
     const uris = TrueShuffle.assembleTrackPages(pages, firstPage.total);
     const confirmedSnapshot = TrueShuffle.readPlaylistSnapshot(
-      await requestSpotify(token, TrueShuffle.playlistSnapshotURL(playlistId))
+      await requestSpotify(token, TrueShuffle.playlistSnapshotURL(playlistId), "playlist-snapshot-verify")
     );
     if (confirmedSnapshot !== pinnedSnapshot) {
       throw new TrueShuffle.PlaylistChangedError("the playlist changed while its tracks were read");
@@ -477,8 +655,10 @@
           cached.snapshot_id === playlist.snapshotId) {
         loadedTracks = {id: playlist.id, snapshotId: cached.snapshot_id, uris: cached.uris};
         renderTrackStatus(TrueShuffle.loadedTracksMessage(cached.uris.length, null, null));
+        setOperationContext({source_disposition: "playlist-cache-hit"});
         return {uris: cached.uris, changes: null};
       }
+      setOperationContext({source_disposition: "network-read"});
 
       const readStart = Date.now();
       const read = await readPlaylistTracks(token, playlist.id, renderTrackProgress);
@@ -526,6 +706,7 @@
     );
     const pages = await fetchTrackPages(
       token, TrueShuffle.likedPageURL, offsets, TrueShuffle.readLikedTrackPage,
+      "liked-items-page",
       function (pageCount) {
         loadedCount += pageCount;
         onProgress(loadedCount, firstPage.total);
@@ -534,7 +715,7 @@
     pages.push({offset: 0, count: firstPage.count, uris: firstPage.uris});
     const uris = TrueShuffle.assembleTrackPages(pages, firstPage.total);
     const probe = TrueShuffle.readLikedTrackPage(
-      await requestSpotify(token, TrueShuffle.likedPageURL(0))
+      await requestSpotify(token, TrueShuffle.likedPageURL(0), "liked-fingerprint-verify")
     );
     if (!TrueShuffle.likedRecordMatches({total: firstPage.total, head: firstPage.uris}, probe)) {
       throw new TrueShuffle.PlaylistChangedError("the library changed while it was read");
@@ -553,7 +734,7 @@
     try {
       const cached = await readTrackCache(source.id, TrueShuffle.validLikedCacheRecord);
       const firstPage = TrueShuffle.readLikedTrackPage(
-        await requestSpotify(token, TrueShuffle.likedPageURL(0))
+        await requestSpotify(token, TrueShuffle.likedPageURL(0), "liked-fingerprint-open")
       );
       // Disconnecting mid-fetch cleared the page; drop the late result.
       if (!selectionActive(source)) {
@@ -562,8 +743,10 @@
       if (cached !== null && TrueShuffle.likedRecordMatches(cached, firstPage)) {
         loadedTracks = {id: source.id, snapshotId: null, uris: cached.uris};
         renderTrackStatus(TrueShuffle.loadedTracksMessage(cached.uris.length, null, null));
+        setOperationContext({source_disposition: "liked-fingerprint-hit"});
         return {uris: cached.uris, changes: null};
       }
+      setOperationContext({source_disposition: "network-read"});
 
       const uris = await readLikedTracks(token, firstPage, renderTrackProgress);
       if (!selectionActive(source)) {
@@ -624,10 +807,12 @@
         const created = TrueShuffle.readCreatedPlaylist(await requestSpotify(
           token,
           TrueShuffle.createPlaylistURL(),
+          "target-create",
           {name: targetName, public: false, description: "Created by TrueShuffle"}
         ));
         target = {id: created.id, name: created.name, total: null, snapshotId: null};
         listedPlaylists.push(target);
+        setOperationContext({target_disposition: "created"});
       }
       let written = 0;
       renderTrackProgress(written, shuffled.length);
@@ -639,32 +824,38 @@
         await requestSpotify(
           token,
           TrueShuffle.addTracksURL(target.id),
+          replace ? "target-replace" : "target-append",
           {uris: batches[index]},
           replace ? "PUT" : "POST"
         );
+        if (replace) {
+          setOperationContext({target_disposition: "replaced"});
+        }
         written += batches[index].length;
         renderTrackProgress(written, shuffled.length);
       }
       const total = TrueShuffle.readPlaylistTotal(
-        await requestSpotify(token, TrueShuffle.playlistTotalURL(target.id))
+        await requestSpotify(token, TrueShuffle.playlistTotalURL(target.id), "target-total-verify")
       );
       if (total !== shuffled.length) {
         throw new Error("the target playlist does not contain every track");
       }
       if (!selectionActive(source)) {
-        return;
+        return false;
       }
       renderTrackStatus(TrueShuffle.shuffleResultMessage(
         !overwriting, target.name, shuffled.length, Date.now() - writeStart
       ) + TrueShuffle.trackChangesSuffix(changes));
+      return true;
     } catch (error) {
       if (!selectionActive(source)) {
-        return;
+        return false;
       }
       renderTrackStatus(target === null
         ? "The shuffled playlist could not be created" + failureDetail(error) + ". Try again."
         : "\"" + target.name + "\" may be incomplete" + failureDetail(error) +
           ". Shuffle again to rewrite it.");
+      return false;
     }
   }
 
@@ -672,29 +863,41 @@
   // target, under a single button gate and one progress element.
   async function runShuffle(token, source) {
     setActionButtonsDisabled(true);
+    const operation = beginOperation(source.liked ? "liked-shuffle" : "playlist-shuffle");
     try {
       const loaded = source.liked
         ? await loadLikedSource(token, source)
         : await loadPlaylistSource(token, source);
       if (loaded === null) {
+        finishOperation(operation, selectedPlaylist === null ? "abandoned" : "load-failed");
         return;
       }
+      setOperationContext({source_total: loaded.uris.length});
       if (loaded.uris.length === 0) {
         renderTrackStatus(TrueShuffle.emptySourceMessage(source.name));
+        setOperationContext({source_disposition: "empty"});
+        finishOperation(operation, "no-tracks");
         return;
       }
       if (loaded.uris.length > TrueShuffle.maxPlaylistTracks) {
         renderTrackStatus("\"" + source.name + "\" holds more than 10,000 tracks, the most a playlist can contain.");
+        setOperationContext({source_disposition: "capacity-rejected"});
+        finishOperation(operation, "capacity-rejected");
         return;
       }
       // Writing needs the modify scope; a token without it would only earn
       // a 403. Reconnecting is the fix, and disconnect is the way there.
       if (!TrueShuffle.hasScope(token.scope, playlistWriteScope)) {
         renderTrackStatus("Disconnect this browser and reconnect Spotify to allow creating playlists.");
+        finishOperation(operation, "scope-blocked");
         return;
       }
-      await writeShuffled(token, source, loaded.uris, loaded.changes);
+      const written = await writeShuffled(token, source, loaded.uris, loaded.changes);
+      finishOperation(operation, written
+        ? "complete"
+        : (selectedPlaylist === null ? "abandoned" : "write-failed"));
     } finally {
+      finishOperation(operation, "abandoned");
       trackProgressElement.hidden = true;
       setActionButtonsDisabled(false);
     }
@@ -756,14 +959,17 @@
 
   async function loadPlaylists(token) {
     renderPlaylistStatus("Loading playlists...");
+    const operation = beginOperation("playlist-list");
     let playlists;
     try {
       playlists = await fetchPlaylists(token);
     } catch (_) {
       // A failed listing is not proof of revocation, so the token is kept.
       renderPlaylistStatus("Playlists could not be loaded. Reload to try again.");
+      finishOperation(operation, "listing-failed");
       return;
     }
+    finishOperation(operation, "complete");
     listedPlaylists = playlists;
     const displayed = TrueShuffle.displayedPlaylists(playlists);
     renderSourceList(token, displayed.playlists);

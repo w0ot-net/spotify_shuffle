@@ -583,3 +583,119 @@ test("trackChangesSuffix is empty for no change and names the counts otherwise",
   assert.equal(TrueShuffle.trackChangesSuffix({added: 0, removed: 0}), "");
   assert.equal(TrueShuffle.trackChangesSuffix({added: 2, removed: 1}), " 2 added, 1 removed since last read.");
 });
+
+test("telemetryEndpointClass maps every role and rejects unknown ones", () => {
+  assert.equal(TrueShuffle.telemetryEndpointClass("playlist-list-page"), "playlists");
+  assert.equal(TrueShuffle.telemetryEndpointClass("playlist-snapshot-pin"), "playlist-metadata");
+  assert.equal(TrueShuffle.telemetryEndpointClass("playlist-snapshot-verify"), "playlist-metadata");
+  assert.equal(TrueShuffle.telemetryEndpointClass("playlist-items-page"), "playlist-items");
+  assert.equal(TrueShuffle.telemetryEndpointClass("liked-fingerprint-open"), "liked-tracks");
+  assert.equal(TrueShuffle.telemetryEndpointClass("liked-items-page"), "liked-tracks");
+  assert.equal(TrueShuffle.telemetryEndpointClass("liked-fingerprint-verify"), "liked-tracks");
+  assert.equal(TrueShuffle.telemetryEndpointClass("target-create"), "playlists");
+  assert.equal(TrueShuffle.telemetryEndpointClass("target-replace"), "playlist-items");
+  assert.equal(TrueShuffle.telemetryEndpointClass("target-append"), "playlist-items");
+  assert.equal(TrueShuffle.telemetryEndpointClass("target-total-verify"), "playlist-metadata");
+  assert.throws(() => TrueShuffle.telemetryEndpointClass("surprise"), /unknown telemetry request role/);
+});
+
+test("normalizeRetryAfter accepts only a plain bounded delta", () => {
+  assert.deepEqual(plain(TrueShuffle.normalizeRetryAfter(null)), {state: "absent", seconds: null});
+  assert.deepEqual(plain(TrueShuffle.normalizeRetryAfter(undefined)), {state: "absent", seconds: null});
+  assert.deepEqual(plain(TrueShuffle.normalizeRetryAfter("")), {state: "absent", seconds: null});
+  assert.deepEqual(plain(TrueShuffle.normalizeRetryAfter("7")), {state: "valid", seconds: 7});
+  assert.deepEqual(plain(TrueShuffle.normalizeRetryAfter(" 30 ")), {state: "valid", seconds: 30});
+  assert.deepEqual(plain(TrueShuffle.normalizeRetryAfter("1.5")), {state: "invalid", seconds: null});
+  assert.deepEqual(plain(TrueShuffle.normalizeRetryAfter("soon")), {state: "invalid", seconds: null});
+  assert.deepEqual(plain(TrueShuffle.normalizeRetryAfter("1234567")), {state: "invalid", seconds: null});
+});
+
+test("normalizeSpotifyReason keeps only bounded structured reasons", () => {
+  assert.equal(TrueShuffle.normalizeSpotifyReason("QUOTA_EXCEEDED"), "QUOTA_EXCEEDED");
+  assert.equal(TrueShuffle.normalizeSpotifyReason("rate limited"), null);
+  assert.equal(TrueShuffle.normalizeSpotifyReason("A".repeat(41)), null);
+  assert.equal(TrueShuffle.normalizeSpotifyReason(429), null);
+  assert.equal(TrueShuffle.normalizeSpotifyReason(null), null);
+});
+
+test("normalizeTelemetryCount bounds workload numbers", () => {
+  assert.equal(TrueShuffle.normalizeTelemetryCount(0), 0);
+  assert.equal(TrueShuffle.normalizeTelemetryCount(1000000), 1000000);
+  assert.equal(TrueShuffle.normalizeTelemetryCount(-1), null);
+  assert.equal(TrueShuffle.normalizeTelemetryCount(1000001), null);
+  assert.equal(TrueShuffle.normalizeTelemetryCount(2.5), null);
+  assert.equal(TrueShuffle.normalizeTelemetryCount("3"), null);
+});
+
+test("rollingRequestHistory keeps a 30-second window including now", () => {
+  const now = 1770000030000;
+  const rolled = TrueShuffle.rollingRequestHistory(
+    [now - 30000, now - 29999, now - 15000], now
+  );
+  assert.deepEqual(plain(rolled.starts), [now - 29999, now - 15000, now]);
+  assert.equal(rolled.count, 3);
+  const empty = TrueShuffle.rollingRequestHistory([], now);
+  assert.deepEqual(plain(empty.starts), [now]);
+  assert.equal(empty.count, 1);
+});
+
+test("truncateTelemetryEvents drops oldest successes before failures", () => {
+  const ok = (index) => ({result: "ok", index: index});
+  const failed = (index) => ({result: "http-error", index: index});
+  const under = TrueShuffle.truncateTelemetryEvents([ok(0), failed(1)], 5);
+  assert.equal(under.truncated, false);
+  assert.deepEqual(plain(under.events).map((event) => event.index), [0, 1]);
+
+  const over = TrueShuffle.truncateTelemetryEvents(
+    [ok(0), failed(1), ok(2), ok(3), failed(4)], 3
+  );
+  assert.equal(over.truncated, true);
+  assert.deepEqual(plain(over.events).map((event) => event.index), [1, 3, 4],
+    "oldest successes go first; failures survive");
+
+  const allFailed = TrueShuffle.truncateTelemetryEvents(
+    [failed(0), failed(1), failed(2)], 2
+  );
+  assert.deepEqual(plain(allFailed.events).map((event) => event.index), [1, 2],
+    "when only failures remain the oldest are dropped");
+});
+
+test("encodeTelemetryReport bounds event count and encoded length", () => {
+  const smallReport = {report_id: "r", truncated: false, events: [{result: "ok"}]};
+  const small = JSON.parse(TrueShuffle.encodeTelemetryReport(smallReport));
+  assert.equal(small.truncated, false);
+  assert.equal(small.events.length, 1);
+
+  const events = [];
+  for (let index = 0; index < 300; index += 1) {
+    events.push({
+      result: index === 299 ? "http-error" : "ok",
+      role: "playlist-items-page",
+      endpoint_class: "playlist-items",
+      method: "GET",
+      attempt: 1,
+      scheduled_wait_ms: 0,
+      started_at: 1770000000000 + index,
+      start_offset_ms: index,
+      duration_ms: 100,
+      status: null,
+      retry_after_state: "absent",
+      retry_after_seconds: null,
+      reason: null,
+      request_items: null,
+      response_items: 50,
+      page_offset: index * 50,
+      page_limit: 50,
+      server_total: 15000,
+      window_count: index + 1
+    });
+  }
+  const large = JSON.parse(TrueShuffle.encodeTelemetryReport(
+    {report_id: "r", truncated: false, events: events}
+  ));
+  assert.equal(large.truncated, true);
+  assert.ok(large.events.length <= TrueShuffle.maxTelemetryEvents);
+  assert.ok(JSON.stringify(large).length <= TrueShuffle.maxTelemetryReportLength);
+  assert.equal(large.events[large.events.length - 1].result, "http-error",
+    "the failure survives length-driven truncation");
+});

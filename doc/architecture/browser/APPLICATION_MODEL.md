@@ -30,6 +30,14 @@ Script order is an invariant, not a convention: `app.js` destructures the
 global at load, so a reversed pair breaks the page at startup. The served
 page is tested for position, not mere presence, of the two tags.
 
+Each listing and each shuffle chain also assembles one sanitized telemetry
+report -- request roles, timing, statuses, workload numbers, and the
+page-lifetime rolling 30-second request count -- submitted once, unawaited,
+when the operation settles. Transport failure is swallowed; telemetry can
+never change what an operation does or renders. The bounded vocabulary
+lives in `web/pure.js`; the [security model](../security/SECURITY_MODEL.md)
+owns what may never appear in a report.
+
 ## The purity rule
 
 `web/pure.js` may not reference `document`, `window`, `fetch`,

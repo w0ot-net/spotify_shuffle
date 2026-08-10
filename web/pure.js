@@ -373,6 +373,106 @@ var TrueShuffle = (function () {
     return "\"" + name + "\" has no tracks to shuffle.";
   }
 
+  // ---- Telemetry value logic ----
+  // Sanitized rate-limit evidence: bounded enums and numbers only. Nothing
+  // built here may carry tokens, account or playlist identity, track URIs,
+  // raw URLs, or response text.
+
+  const telemetryRoleEndpoints = {
+    "playlist-list-page": "playlists",
+    "playlist-snapshot-pin": "playlist-metadata",
+    "playlist-snapshot-verify": "playlist-metadata",
+    "playlist-items-page": "playlist-items",
+    "liked-fingerprint-open": "liked-tracks",
+    "liked-items-page": "liked-tracks",
+    "liked-fingerprint-verify": "liked-tracks",
+    "target-create": "playlists",
+    "target-replace": "playlist-items",
+    "target-append": "playlist-items",
+    "target-total-verify": "playlist-metadata"
+  };
+
+  function telemetryEndpointClass(role) {
+    const endpointClass = telemetryRoleEndpoints[role];
+    if (endpointClass === undefined) {
+      throw new Error("unknown telemetry request role: " + role);
+    }
+    return endpointClass;
+  }
+
+  // Only a plain bounded delta is a valid Retry-After; dates and noise are
+  // recorded as invalid rather than guessed at.
+  function normalizeRetryAfter(headerValue) {
+    if (headerValue === null || headerValue === undefined || headerValue === "") {
+      return {state: "absent", seconds: null};
+    }
+    if (typeof headerValue === "string" && /^\d{1,6}$/.test(headerValue.trim())) {
+      return {state: "valid", seconds: Number(headerValue.trim())};
+    }
+    return {state: "invalid", seconds: null};
+  }
+
+  function normalizeSpotifyReason(value) {
+    return typeof value === "string" && /^[A-Z0-9_]{1,40}$/.test(value) ? value : null;
+  }
+
+  function normalizeTelemetryCount(value) {
+    return Number.isInteger(value) && value >= 0 && value <= 1000000 ? value : null;
+  }
+
+  // Page-local rolling pressure: request starts within the last 30 seconds,
+  // including the request being dispatched now.
+  function rollingRequestHistory(starts, now) {
+    const kept = starts.filter(function (start) { return now - start < 30000; });
+    kept.push(now);
+    return {starts: kept, count: kept.length};
+  }
+
+  const maxTelemetryEvents = 256;
+  const maxTelemetryReportLength = 60 * 1024;
+
+  // Failure-preserving truncation: drop the oldest successes first, then the
+  // oldest events outright. Window counts computed at dispatch are retained
+  // as recorded, never recomputed from the truncated list.
+  function truncateTelemetryEvents(events, maxEvents) {
+    if (events.length <= maxEvents) {
+      return {events: events.slice(), truncated: false};
+    }
+    const kept = events.slice();
+    let index = 0;
+    while (kept.length > maxEvents && index < kept.length) {
+      if (kept[index].result === "ok") {
+        kept.splice(index, 1);
+      } else {
+        index += 1;
+      }
+    }
+    while (kept.length > maxEvents) {
+      kept.shift();
+    }
+    return {events: kept, truncated: true};
+  }
+
+  // The encoded report is bounded twice: the event count, then the encoded
+  // length, dropping more events until it fits. Report content is ASCII by
+  // construction, so string length bounds encoded bytes.
+  function encodeTelemetryReport(report) {
+    let bounded = truncateTelemetryEvents(report.events, maxTelemetryEvents);
+    let body = Object.assign({}, report, {
+      events: bounded.events,
+      truncated: report.truncated || bounded.truncated
+    });
+    let encoded = JSON.stringify(body);
+    while (encoded.length > maxTelemetryReportLength && body.events.length > 0) {
+      bounded = truncateTelemetryEvents(
+        body.events, Math.max(0, body.events.length - 16)
+      );
+      body = Object.assign({}, body, {events: bounded.events, truncated: true});
+      encoded = JSON.stringify(body);
+    }
+    return encoded;
+  }
+
   function assembleTrackPages(pages, total) {
     // Sorting by offset makes assembly independent of completion order.
     const ordered = pages.slice().sort((a, b) => a.offset - b.offset);
@@ -401,6 +501,7 @@ var TrueShuffle = (function () {
     derivedPlaylistSuffix: derivedPlaylistSuffix,
     displayedPlaylists: displayedPlaylists,
     emptySourceMessage: emptySourceMessage,
+    encodeTelemetryReport: encodeTelemetryReport,
     findPlaylistByName: findPlaylistByName,
     hasScope: hasScope,
     likedPageURL: likedPageURL,
@@ -409,6 +510,11 @@ var TrueShuffle = (function () {
     likedSourceName: likedSourceName,
     loadedTracksMessage: loadedTracksMessage,
     maxPlaylistTracks: maxPlaylistTracks,
+    maxTelemetryEvents: maxTelemetryEvents,
+    maxTelemetryReportLength: maxTelemetryReportLength,
+    normalizeRetryAfter: normalizeRetryAfter,
+    normalizeSpotifyReason: normalizeSpotifyReason,
+    normalizeTelemetryCount: normalizeTelemetryCount,
     playlistLabel: playlistLabel,
     playlistSnapshotURL: playlistSnapshotURL,
     playlistTotalURL: playlistTotalURL,
@@ -420,12 +526,15 @@ var TrueShuffle = (function () {
     readPlaylistSnapshot: readPlaylistSnapshot,
     readPlaylistTotal: readPlaylistTotal,
     remainingTrackOffsets: remainingTrackOffsets,
+    rollingRequestHistory: rollingRequestHistory,
     shadowedRowsNote: shadowedRowsNote,
     shuffledURIs: shuffledURIs,
     shuffleResultMessage: shuffleResultMessage,
     SpotifyRequestError: SpotifyRequestError,
+    telemetryEndpointClass: telemetryEndpointClass,
     trackChangesSuffix: trackChangesSuffix,
     trackPageURL: trackPageURL,
+    truncateTelemetryEvents: truncateTelemetryEvents,
     uriBatches: uriBatches,
     validLikedCacheRecord: validLikedCacheRecord,
     validPlaylistCursor: validPlaylistCursor,

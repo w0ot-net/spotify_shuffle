@@ -51,11 +51,18 @@ public Spotify client ID.
 ## Run
 
 Go 1.22 or later is required. Set the public client ID from the Spotify
-Developer Dashboard when starting the server:
+Developer Dashboard and a path for the telemetry database when starting the
+server:
 
 ```sh
-SPOTIFY_CLIENT_ID=your-client-id go run .
+SPOTIFY_CLIENT_ID=your-client-id \
+TELEMETRY_DB_PATH=/tmp/trueshuffle-telemetry.sqlite go run .
 ```
+
+`TELEMETRY_DB_PATH` names the SQLite file (created mode 0600) holding
+sanitized first-party rate-limit telemetry: bounded request timing, roles,
+statuses, and counts per operation, with no token, account, playlist, or
+track identity. There is no HTTP read access to it.
 
 Open <http://127.0.0.1:8080/> in a browser to view the home page.
 

@@ -49,6 +49,13 @@ them needs a separate origin without Spotify data.
   and `textContent`; `innerHTML` is never assigned.
 - **No inline script, ever.** The page wires all behavior from the two
   served scripts, keeping `script-src 'self'` honest.
+- **Telemetry is sanitized at the source.** The rate-limit reports the page
+  posts to `/api/telemetry` carry bounded enums and numbers only -- request
+  roles, timing, statuses, counts -- never tokens, account or playlist
+  identity, track URIs, raw URLs, or response text. Raw values exist only
+  inside the browser normalizer; the server validates every field strictly,
+  rejects cross-origin provenance when browser headers reveal it, and
+  exposes no read route. Leak absence is asserted by test.
 
 The [testing model](../testing/TESTING_MODEL.md) requires that removing a
 security guard makes a test fail; the cursor guard is the standing example.
