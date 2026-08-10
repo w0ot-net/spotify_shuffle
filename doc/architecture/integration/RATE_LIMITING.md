@@ -77,6 +77,18 @@ at least per endpoint, not only per app-wide window -- consistent with
 the documented existence of unenumerated custom endpoint limits.
 **[deduction]**
 
+The refused resource is a quota, not the rolling window. The liked
+`429`s of 2026-08-10 carried Spotify's structured body reason
+`QUOTA_EXCEEDED`, and while `/v1/me/tracks` was refusing even single
+fingerprint requests, a 4,549-track playlist shuffle completed cleanly
+through the same lane (140 requests, zero failures, 20:13 UTC).
+**[observed]** Had the app-wide rolling 30-second window been the
+exhausted resource, those 140 requests would have drawn on it too;
+`/v1/me/tracks` therefore carries its own spendable budget, separate
+from the playlist endpoints, and that budget -- not overall app traffic
+-- is what the incident exhausted. **[deduction]** This is why liked
+reads locked while every other read kept working.
+
 Those `429`s carried no `Retry-After` visible to the browser: telemetry
 recorded `retry_after_state=absent` on every liked `429` of 2026-08-09
 and 2026-08-10. Yet an out-of-band probe on 2026-08-10 at 20:23 UTC
