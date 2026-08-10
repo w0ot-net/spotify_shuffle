@@ -124,3 +124,28 @@ nothing shifts in the connected layout.
   pass unmodified.
 - The lines render in the existing theme as quiet fine print on desktop
   and phone widths.
+
+## Execution Notes
+
+Executed 2026-08-10. Implementation commit `2d3212b`.
+
+Implemented as planned: the connect note sits inside the connection
+panel's actions block after the buttons, hidden by the
+`#connect[hidden] ~ .connect-note` stylesheet rule; the workspace note
+closes the workspace panel; both share the new `.fineprint` rule built on
+the theme's `--muted` token; the served-page test gained the
+`sees your account.` and `Originals are never` markers; the
+application-model fixed-document description names both lines. The copy
+uses typographic quotes and an em dash via HTML entities, the fitting the
+plan allowed. No JavaScript changed.
+
+Deviations: the execution ran in a clean worktree at `origin/main`
+because the primary worktree carried unrelated in-progress theme work in
+the same files; those changes were left untouched and are not part of
+this commit.
+
+Validation, all passing in that worktree: `gofmt -l main.go main_test.go`
+(no output), `go test ./...`, `go vet ./...`, `node --check` on both web
+scripts, `node --test web/pure_test.js web/app_test.js` (120 pass,
+0 fail), `git diff --check`. Visual confirmation on the deployed page is
+recorded with the companion plan's deployment.
