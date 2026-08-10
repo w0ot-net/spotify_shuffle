@@ -5,11 +5,11 @@
    browser app already maintains -- this sheet adds no behavior. */
 
 :root {
-  --ground: #090b10;
-  --panel: rgba(255, 255, 255, 0.045);
-  --panel-strong: rgba(255, 255, 255, 0.08);
-  --edge: rgba(255, 255, 255, 0.12);
-  --edge-bright: rgba(255, 255, 255, 0.22);
+  --ground: #06070c;
+  --panel: rgba(255, 255, 255, 0.07);
+  --panel-strong: rgba(255, 255, 255, 0.11);
+  --edge: rgba(255, 255, 255, 0.16);
+  --edge-bright: rgba(255, 255, 255, 0.3);
   --fg: #e8ecef;
   --muted: #8a95a1;
   --accent: #1db954;
@@ -42,11 +42,74 @@ body {
   font-family: var(--sans);
   color: var(--fg);
   line-height: 1.5;
-  background:
-    radial-gradient(1100px 560px at 50% -12%, rgba(29, 185, 84, 0.12), transparent 62%),
-    radial-gradient(760px 520px at 108% 112%, rgba(60, 120, 255, 0.07), transparent 60%),
-    var(--ground);
-  background-attachment: fixed;
+  background: var(--ground);
+  overflow-x: hidden;
+}
+
+/* An abstract aurora of drifting, heavily blurred color blobs behind the
+   glass -- this is what the panels refract, and what makes the frost read.
+   Fixed and decorative; it sits behind all content. */
+.aurora {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.blob {
+  position: absolute;
+  width: 46vmax;
+  height: 46vmax;
+  border-radius: 50%;
+  filter: blur(70px);
+  opacity: 0.55;
+  mix-blend-mode: screen;
+  will-change: transform;
+}
+
+.blob-green {
+  background: radial-gradient(circle, #1db954 0%, transparent 68%);
+  top: -14vmax;
+  left: -6vmax;
+  animation: drift-a 26s ease-in-out infinite alternate;
+}
+
+.blob-teal {
+  background: radial-gradient(circle, #10b3a3 0%, transparent 68%);
+  top: 8vmax;
+  right: -14vmax;
+  animation: drift-b 32s ease-in-out infinite alternate;
+}
+
+.blob-blue {
+  background: radial-gradient(circle, #2f6bff 0%, transparent 70%);
+  bottom: -18vmax;
+  left: 4vmax;
+  animation: drift-c 30s ease-in-out infinite alternate;
+}
+
+.blob-violet {
+  background: radial-gradient(circle, #7c3aed 0%, transparent 72%);
+  bottom: -10vmax;
+  right: 2vmax;
+  opacity: 0.4;
+  animation: drift-a 36s ease-in-out infinite alternate-reverse;
+}
+
+@keyframes drift-a {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(6vmax, 8vmax, 0) scale(1.12); }
+}
+
+@keyframes drift-b {
+  from { transform: translate3d(0, 0, 0) scale(1.05); }
+  to { transform: translate3d(-8vmax, 6vmax, 0) scale(0.92); }
+}
+
+@keyframes drift-c {
+  from { transform: translate3d(0, 0, 0) scale(0.95); }
+  to { transform: translate3d(7vmax, -6vmax, 0) scale(1.1); }
 }
 
 .app {
@@ -90,15 +153,25 @@ h1 {
   font-size: 0.9rem;
 }
 
-/* Glass panels. */
+/* Glass panels: a translucent frosted fill that refracts the aurora, a
+   lit top edge, and ambient depth. saturate() lets the color behind bleed
+   through so the frost reads as glass, not gray. */
 .panel {
   background: var(--panel);
   border: 1px solid var(--edge);
   border-radius: var(--radius);
   padding: 1.15rem 1.25rem;
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(22px) saturate(150%);
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
+}
+
+/* Without backdrop-filter the frost would be invisible, so fall back to a
+   more opaque fill that still looks deliberate. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .panel {
+    background: rgba(20, 24, 34, 0.82);
+  }
 }
 
 #status {
@@ -226,6 +299,9 @@ progress::-moz-progress-bar {
   display: flex;
 }
 
+/* Row borders are set entirely at this id-scoped specificity, so the
+   left edge tracks hover and selection like the other three sides -- a
+   plain button:hover rule would lose to this selector on the left. */
 #playlists button {
   flex: 1;
   text-align: left;
@@ -233,20 +309,23 @@ progress::-moz-progress-bar {
   font-size: 0.95rem;
   letter-spacing: 0;
   padding: 0.7rem 0.9rem;
+  border: 1px solid var(--edge);
   border-left: 3px solid transparent;
   background: var(--panel);
 }
 
 #playlists button:hover {
   background: var(--panel-strong);
+  border-color: var(--accent);
+  border-left-color: var(--accent);
   transform: translateX(2px);
 }
 
-/* The selected source: lifted, brighter, with a green edge. */
+/* The selected source: brighter, with a green left edge. */
 #playlists button[aria-pressed="true"] {
   border-color: var(--edge-bright);
   border-left-color: var(--accent);
-  background: rgba(29, 185, 84, 0.12);
+  background: rgba(29, 185, 84, 0.16);
   color: #fff;
 }
 
@@ -275,7 +354,11 @@ progress::-moz-progress-bar {
   .panel {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
-    background: var(--panel-strong);
+    background: rgba(20, 24, 34, 0.82);
+  }
+
+  .blob {
+    animation: none !important;
   }
 
   button:hover,
