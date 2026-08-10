@@ -142,3 +142,30 @@ request order, UI state, or operation results.
   disconnect only while pending, and never changes application behavior.
 - No retry timer, server/schema change, or second persistence abstraction beyond
   the one-record IndexedDB queue is introduced.
+
+## Execution Notes
+
+Executed 2026-08-09. Implementation commit `19e9d1f`.
+
+Implemented as planned: `validTelemetryQueueEnvelope` and the four-entry
+failure-preserving `queueTelemetryReport` in `web/pure.js`; the separate
+`trueshuffle-telemetry` database in `web/app.js` with one envelope record,
+a single read-modify-write transaction per update (the mutator is
+synchronous, so real IndexedDB keeps the transaction alive and overlapping
+tabs serialize), enqueue-before-transport, drains triggered by page
+initialization and each enqueue, removal only on `204`, and honest
+degradation: missing IndexedDB or a corrupt envelope delivers one-shot
+marked `queue-unavailable`, with the corrupt record discarded so the queue
+heals. Disconnect still deletes only the track-cache database.
+Re-enqueueing an existing report id replaces rather than duplicates.
+
+Deviations: none. Validation, all passing: `node --check` on both scripts,
+`node --test` (103 pass, 0 fail; two new pure tests, five new wiring
+cases covering rejected-delivery persistence, reload draining
+oldest-first, dead-intake queueing without fallback sends, the seeded
+drop counter reaching new reports, corruption degrade-and-reset, and the
+no-IndexedDB one-shot), `git diff --check`, and the inverted purity grep.
+No Go file changed.
+
+Deployment ships as one release with the request-control plan, whose
+dependency on running telemetry is satisfied by their shared activation.
