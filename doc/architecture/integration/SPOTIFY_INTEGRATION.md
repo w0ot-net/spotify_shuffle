@@ -122,7 +122,7 @@ counts are computed locally by a multiset comparison (see the
 ## The serial request lane
 
 Every Web API call -- listing, reads, writes, verification -- passes
-through one paced lane: a single request in flight and at least 1,000 ms
+through one paced lane: a single request in flight and at least 250 ms
 between starts, across operation boundaries. Page zero also stops an
 oversized Liked Songs read before another request is spent: a `total`
 above the 10,000-item playlist capacity fails there, since its write is
@@ -155,8 +155,11 @@ issues nothing further from that chain.
 Every operation posts a sanitized report -- request roles, timing,
 statuses, waits, attempts, `Retry-After` state, Spotify's structured
 reason, and the page-local rolling 30-second request count -- to the
-service's telemetry store; the recorded policy (`serial-1000ms-v1`) is the
-evidence base for tuning.
+service's telemetry store; the recorded policy (`serial-250ms-v1`, stepped
+from `serial-1000ms-v1` on 2026-08-10 after the recorded evidence showed
+the old ceiling never refused) is the evidence base for tuning. At the
+observed median request latency the serial lane is latency-bound, so
+further gap reductions are not expected to change throughput.
 
 ## Scopes
 

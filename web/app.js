@@ -9,9 +9,13 @@
   const maxPlaylistPages = 200;
   // One serial request lane: a single in-flight Web API call with at least
   // this gap between starts, across listing, reads, writes, and
-  // verification. Deliberately conservative and unconfigurable until the
-  // telemetry evidence justifies a different pace.
-  const minStartGapMs = 1000;
+  // verification. Stepped from 1,000 ms on 2026-08-10 after telemetry
+  // recorded 198 clean requests at the old ceiling and only
+  // pressure-independent quota 429s; at the observed ~270 ms median request
+  // latency the serial lane is now latency-bound, so a smaller gap would
+  // change nothing. Still unconfigurable: the next change also comes from
+  // telemetry evidence.
+  const minStartGapMs = 250;
   const cooldownStorageKey = "trueshuffle.spotify-cooldown.v1";
   const trackCacheDatabaseName = "trueshuffle";
   const trackCacheStoreName = "playlists";
@@ -30,7 +34,7 @@
   const playlistWriteScope = "playlist-modify-private";
   // The request policy the telemetry reports: the serial paced lane with
   // one allowed 429 retry.
-  const telemetryPolicy = {policy: "serial-1000ms-v1", minStartGapMs: minStartGapMs, retryCeiling: 1};
+  const telemetryPolicy = {policy: "serial-250ms-v1", minStartGapMs: minStartGapMs, retryCeiling: 1};
   const telemetryEndpoint = "/api/telemetry";
   // The delivery queue lives in its own database so disconnect can keep
   // deleting the private track cache without touching sanitized pending

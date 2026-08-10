@@ -927,14 +927,14 @@ test("track pages read sequentially in offset order with paced starts", async ()
     .map((request) => Number(new URL(request.url).searchParams.get("offset")));
   assert.deepEqual(pageOffsets, [0, 1, 2, 3], "pages dispatch in offset order");
   for (let index = 1; index < spotify.length; index += 1) {
-    assert.ok(spotify[index].at - spotify[index - 1].at >= 1000,
-      "starts are at least one second apart, including across phases");
+    assert.ok(spotify[index].at - spotify[index - 1].at >= 250,
+      "starts are at least the paced gap apart, including across phases");
   }
   const shuffle = harness.telemetryReports.find((report) => report.kind === "playlist-shuffle");
-  assert.equal(shuffle.policy, "serial-1000ms-v1");
-  assert.equal(shuffle.policy_min_gap_ms, 1000);
+  assert.equal(shuffle.policy, "serial-250ms-v1");
+  assert.equal(shuffle.policy_min_gap_ms, 250);
   assert.equal(shuffle.policy_retry_ceiling, 1);
-  assert.ok(shuffle.events.slice(1).every((event) => event.scheduled_wait_ms >= 1000 - 1),
+  assert.ok(shuffle.events.slice(1).every((event) => event.scheduled_wait_ms >= 250 - 1),
     "every request after the first records its paced wait");
 });
 test("a snapshot change during the read fails it and disturbs nothing else", async () => {
@@ -1726,7 +1726,7 @@ test("one click on a cold playlist reports sanitized full-chain evidence", async
   const listing = harness.telemetryReports[0];
   assert.equal(listing.kind, "playlist-list");
   assert.equal(listing.terminal_phase, "complete");
-  assert.equal(listing.policy, "serial-1000ms-v1");
+  assert.equal(listing.policy, "serial-250ms-v1");
   assert.deepEqual(listing.events.map((event) => event.role), ["playlist-list-page"]);
 
   const shuffle = harness.telemetryReports[1];
