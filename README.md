@@ -126,10 +126,10 @@ Spotify data.
 
 The page is themed by one first-party stylesheet served at `/styles.css`: a
 dark interface with translucent glass panels and a single green accent. A
-dock of small swatch buttons along the bottom edge offers the original
-violet-and-blue ribbon SVG plus five dark raster variations -- Weave, Veil,
-Orbit, Tide, and Prism; pressing a swatch applies that background at once,
-and the choice is remembered in this browser. Every image is bundled into the
+dock of small swatch buttons along the bottom edge offers five dark raster
+backgrounds -- Weave (the default), Veil, Orbit, Tide, and Prism; pressing
+a swatch applies that background at once, and the choice is remembered in
+this browser. Every image is bundled into the
 first-party binary; the page loads no third-party visual assets.
 
 "Disconnect this browser" deletes the local token record and the cached track

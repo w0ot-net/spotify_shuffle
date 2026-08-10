@@ -72,7 +72,7 @@ skeleton: restore the optional visual-background preference, verify Web Crypto
 support, load the public configuration, then branch on whether the location is
 the OAuth callback or an ordinary load. Connected paths finish by listing
 playlists. Background changes apply immediately and persist when local storage
-works; invalid or unavailable storage falls back to the original Ribbon image
+works; invalid or unavailable storage falls back to the default Weave image
 without affecting authorization or Spotify work.
 
 The page-state vocabulary the lifecycle renders:

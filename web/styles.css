@@ -49,19 +49,15 @@ body {
   background: #05070c;
 }
 
-/* The authored ribbon SVG remains the default. Five dark raster variations
-   preserve the same quiet center and luminous edge detail, so every choice
-   stays legible behind the frosted panels. */
+/* Five dark raster backgrounds share a quiet center and luminous edge
+   detail, so every choice stays legible behind the frosted panels. Weave is
+   the default and needs no data attribute. */
 .aurora {
   position: fixed;
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  background: #070610 url("/background.svg") center / cover no-repeat;
-}
-
-html[data-background="weave"] .aurora {
-  background-image: url("/background-weave.jpg");
+  background: #070610 url("/background-weave.jpg") center / cover no-repeat;
 }
 
 html[data-background="veil"] .aurora {
@@ -157,10 +153,6 @@ h1 {
   border-color: var(--accent);
   box-shadow: var(--glow);
   opacity: 1;
-}
-
-#background-ribbon {
-  background-image: url("/background.svg");
 }
 
 #background-weave {

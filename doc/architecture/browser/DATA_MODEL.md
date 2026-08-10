@@ -89,9 +89,10 @@ than authorization state, so disconnect does not clear it.
 ## The background preference is visual state
 
 `localStorage` key `trueshuffle.background.v1` holds one value from the fixed
-background vocabulary: `ribbon`, `weave`, `veil`, `orbit`, `tide`, or `prism`.
-`ribbon` is the default and is represented by no stored record. An invalid
-record is discarded; unavailable storage leaves selection working for the
+background vocabulary: `weave`, `veil`, `orbit`, `tide`, or `prism`.
+`weave` is the default and is represented by no stored record. An invalid
+record -- including `ribbon`, the retired SVG default -- is discarded;
+unavailable storage leaves selection working for the
 current page only. The preference contains no Spotify or account data and
 survives disconnect independently of authorization and cached tracks.
 

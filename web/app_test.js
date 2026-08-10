@@ -381,7 +381,7 @@ function createHarness(options) {
   const cancelButton = new FakeElement(true);
   const playlistsElement = new FakeElement(true);
   const backgroundButtons = {};
-  for (const choice of ["ribbon", "weave", "veil", "orbit", "tide", "prism"]) {
+  for (const choice of ["weave", "veil", "orbit", "tide", "prism"]) {
     backgroundButtons[choice] = new FakeElement(false);
   }
   const elements = {
@@ -606,13 +606,15 @@ test("a stored background preference is restored", async () => {
   assert.equal(harness.documentElement.dataset.background, "veil");
 });
 
-test("an invalid background preference falls back to the ribbon default", async () => {
-  const localStorage = new FakeStorage({[backgroundStorageKey]: "unknown"});
+test("an invalid background preference falls back to the weave default", async () => {
+  // "ribbon" is a real retired value: browsers that stored the old SVG
+  // default must land on weave and have the stale record cleaned up.
+  const localStorage = new FakeStorage({[backgroundStorageKey]: "ribbon"});
   const harness = createHarness({localStorage: localStorage});
 
   await settle();
 
-  assert.deepEqual(pressedBackgrounds(harness), ["ribbon"]);
+  assert.deepEqual(pressedBackgrounds(harness), ["weave"]);
   assert.equal("background" in harness.documentElement.dataset, false);
   assert.equal(localStorage.getItem(backgroundStorageKey), null);
 });
@@ -627,9 +629,9 @@ test("pressing a dock swatch applies immediately and persists when storage works
   assert.deepEqual(pressedBackgrounds(harness), ["orbit"]);
   assert.equal(localStorage.getItem(backgroundStorageKey), "orbit");
 
-  harness.backgroundButtons.ribbon.click();
+  harness.backgroundButtons.weave.click();
   assert.equal("background" in harness.documentElement.dataset, false);
-  assert.deepEqual(pressedBackgrounds(harness), ["ribbon"]);
+  assert.deepEqual(pressedBackgrounds(harness), ["weave"]);
   assert.equal(localStorage.getItem(backgroundStorageKey), null);
 });
 

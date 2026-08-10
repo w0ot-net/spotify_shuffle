@@ -25,9 +25,6 @@ var appJS []byte
 //go:embed web/styles.css
 var stylesCSS []byte
 
-//go:embed web/background.svg
-var backgroundSVG []byte
-
 //go:embed web/background-weave.jpg
 var backgroundWeaveJPEG []byte
 
@@ -91,7 +88,6 @@ func newHandler(spotifyClientID string, telemetry *telemetryStore) (http.Handler
 	mux.HandleFunc("GET /pure.js", serveAsset(pureJS, "text/javascript; charset=utf-8"))
 	mux.HandleFunc("GET /app.js", serveAsset(appJS, "text/javascript; charset=utf-8"))
 	mux.HandleFunc("GET /styles.css", serveAsset(stylesCSS, "text/css; charset=utf-8"))
-	mux.HandleFunc("GET /background.svg", serveAsset(backgroundSVG, "image/svg+xml; charset=utf-8"))
 	mux.HandleFunc("GET /background-weave.jpg", serveAsset(backgroundWeaveJPEG, "image/jpeg"))
 	mux.HandleFunc("GET /background-veil.jpg", serveAsset(backgroundVeilJPEG, "image/jpeg"))
 	mux.HandleFunc("GET /background-orbit.jpg", serveAsset(backgroundOrbitJPEG, "image/jpeg"))

@@ -41,16 +41,18 @@ test("module exposes one global with the expected members", () => {
 });
 
 test("normalizeBackgroundChoice accepts only the fixed visual vocabulary", () => {
-  assert.equal(TrueShuffle.defaultBackground, "ribbon");
+  assert.equal(TrueShuffle.defaultBackground, "weave");
   // Spread into this realm: the context's Array prototype fails strict
   // deep equality against a host-realm literal.
   assert.deepEqual([...TrueShuffle.backgroundChoices],
-    ["ribbon", "weave", "veil", "orbit", "tide", "prism"]);
-  for (const choice of ["ribbon", "weave", "veil", "orbit", "tide", "prism"]) {
+    ["weave", "veil", "orbit", "tide", "prism"]);
+  for (const choice of ["weave", "veil", "orbit", "tide", "prism"]) {
     assert.equal(TrueShuffle.normalizeBackgroundChoice(choice), choice);
   }
-  for (const choice of [null, "", "unknown", 7]) {
-    assert.equal(TrueShuffle.normalizeBackgroundChoice(choice), "ribbon");
+  // "ribbon" is the retired SVG default; stored records naming it fall
+  // back like any other unknown value.
+  for (const choice of [null, "", "unknown", "ribbon", 7]) {
+    assert.equal(TrueShuffle.normalizeBackgroundChoice(choice), "weave");
   }
 });
 

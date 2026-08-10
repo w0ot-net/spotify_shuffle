@@ -63,7 +63,6 @@ func TestAppPage(t *testing.T) {
 				`class="banner"`,
 				`id="connect"`,
 				`class="background-dock"`,
-				`id="background-ribbon"`,
 				`id="background-weave"`,
 				`id="background-veil"`,
 				`id="background-orbit"`,
@@ -168,24 +167,6 @@ func TestStylesheet(t *testing.T) {
 	}
 }
 
-func TestBackgroundSVG(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/background.svg", nil)
-	recorder := httptest.NewRecorder()
-
-	testHandler(t).ServeHTTP(recorder, req)
-
-	if got, want := recorder.Code, http.StatusOK; got != want {
-		t.Fatalf("status code = %d, want %d", got, want)
-	}
-	if got, want := recorder.Header().Get("Content-Type"), "image/svg+xml; charset=utf-8"; got != want {
-		t.Errorf("Content-Type = %q, want %q", got, want)
-	}
-	assertBrowserSecurityHeaders(t, recorder.Header())
-	if !strings.Contains(recorder.Body.String(), "<svg") {
-		t.Error("body is not an SVG document")
-	}
-}
-
 func TestBackgroundJPEGs(t *testing.T) {
 	for _, path := range []string{
 		"/background-weave.jpg",
@@ -248,7 +229,6 @@ func TestAppRoutesAreExact(t *testing.T) {
 		"/pure.js/",
 		"/app.js/",
 		"/styles.css/",
-		"/background.svg/",
 		"/background-weave.jpg/",
 		"/background-veil.jpg/",
 		"/background-orbit.jpg/",
