@@ -16,6 +16,8 @@ var TrueShuffle = (function () {
   const trackPageLimit = 50;
   // Spotify caps a playlist at 10,000 items.
   const maxPlaylistTracks = 10000;
+  const defaultBackground = "ribbon";
+  const backgroundChoices = [defaultBackground, "weave", "veil", "orbit", "tide", "prism"];
 
   class TokenRejectedError extends Error {}
   class AuthorizationRevokedError extends TokenRejectedError {}
@@ -53,6 +55,10 @@ var TrueShuffle = (function () {
       typeof value.token_type === "string" && value.token_type !== "" &&
       typeof value.scope === "string" &&
       typeof value.expires_at === "number" && Number.isFinite(value.expires_at);
+  }
+
+  function normalizeBackgroundChoice(value) {
+    return backgroundChoices.includes(value) ? value : defaultBackground;
   }
 
   function buildTokenRecord(payload, previousToken, now) {
@@ -593,6 +599,7 @@ var TrueShuffle = (function () {
     createPlaylistURL: createPlaylistURL,
     derivedPlaylistName: derivedPlaylistName,
     derivedPlaylistSuffix: derivedPlaylistSuffix,
+    defaultBackground: defaultBackground,
     displayedPlaylists: displayedPlaylists,
     emptySourceMessage: emptySourceMessage,
     encodeTelemetryReport: encodeTelemetryReport,
@@ -607,6 +614,7 @@ var TrueShuffle = (function () {
     maxTelemetryEvents: maxTelemetryEvents,
     maxTelemetryReportLength: maxTelemetryReportLength,
     normalizeRetryAfter: normalizeRetryAfter,
+    normalizeBackgroundChoice: normalizeBackgroundChoice,
     normalizeSpotifyReason: normalizeSpotifyReason,
     normalizeTelemetryCount: normalizeTelemetryCount,
     playlistLabel: playlistLabel,

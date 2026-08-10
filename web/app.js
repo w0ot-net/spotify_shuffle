@@ -16,6 +16,7 @@
   // change nothing. Still unconfigurable: the next change also comes from
   // telemetry evidence.
   const minStartGapMs = 250;
+  const backgroundStorageKey = "trueshuffle.background.v1";
   const cooldownStorageKey = "trueshuffle.spotify-cooldown.v1";
   const trackCacheDatabaseName = "trueshuffle";
   const trackCacheStoreName = "playlists";
@@ -44,6 +45,7 @@
   const telemetryQueueKey = "envelope";
 
   const statusElement = document.getElementById("status");
+  const backgroundSelect = document.getElementById("background");
   const connectButton = document.getElementById("connect");
   const logoutButton = document.getElementById("logout");
   const playlistStatusElement = document.getElementById("playlist-status");
@@ -76,6 +78,47 @@
   // cooldown deadline that backs up an unwritable localStorage.
   let nextRequestStartAt = 0;
   let memoryCooldownUntil = 0;
+
+  function applyBackground(value) {
+    const choice = TrueShuffle.normalizeBackgroundChoice(value);
+    backgroundSelect.value = choice;
+    if (choice === TrueShuffle.defaultBackground) {
+      delete document.documentElement.dataset.background;
+    } else {
+      document.documentElement.dataset.background = choice;
+    }
+    return choice;
+  }
+
+  function restoreBackground() {
+    let stored = null;
+    try {
+      stored = window.localStorage.getItem(backgroundStorageKey);
+    } catch (_) {
+      // The visual preference is optional; the default remains usable.
+    }
+    const choice = applyBackground(stored);
+    if (stored !== null && stored !== choice) {
+      try {
+        window.localStorage.removeItem(backgroundStorageKey);
+      } catch (_) {
+        // Invalid preference cleanup is best effort.
+      }
+    }
+  }
+
+  function selectBackground(value) {
+    const choice = applyBackground(value);
+    try {
+      if (choice === TrueShuffle.defaultBackground) {
+        window.localStorage.removeItem(backgroundStorageKey);
+      } else {
+        window.localStorage.setItem(backgroundStorageKey, choice);
+      }
+    } catch (_) {
+      // The current page can still apply a choice without persistence.
+    }
+  }
 
   function renderWorking(message) {
     statusElement.textContent = message;
@@ -1426,6 +1469,7 @@
   }
 
   async function initialize() {
+    restoreBackground();
     // A prior page may have left acknowledged-pending reports behind.
     try {
       drainTelemetryQueue().catch(function (_) {
@@ -1499,6 +1543,10 @@
       clearPendingAuthorization();
       renderError("Spotify authorization could not be started.", true, false);
     });
+  });
+
+  backgroundSelect.addEventListener("change", function () {
+    selectBackground(backgroundSelect.value);
   });
 
   cancelButton.addEventListener("click", function () {

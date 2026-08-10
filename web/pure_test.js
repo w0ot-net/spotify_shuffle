@@ -40,6 +40,16 @@ test("module exposes one global with the expected members", () => {
     "revocation must remain a rejection subtype for app.js catch logic");
 });
 
+test("normalizeBackgroundChoice accepts only the fixed visual vocabulary", () => {
+  assert.equal(TrueShuffle.defaultBackground, "ribbon");
+  for (const choice of ["ribbon", "weave", "veil", "orbit", "tide", "prism"]) {
+    assert.equal(TrueShuffle.normalizeBackgroundChoice(choice), choice);
+  }
+  for (const choice of [null, "", "unknown", 7]) {
+    assert.equal(TrueShuffle.normalizeBackgroundChoice(choice), "ribbon");
+  }
+});
+
 test("playlistLabel pluralizes and omits unknown totals", () => {
   assert.equal(TrueShuffle.playlistLabel({name: "Morning", total: 1}), "Morning (1 track)");
   assert.equal(TrueShuffle.playlistLabel({name: "Morning", total: 0}), "Morning (0 tracks)");

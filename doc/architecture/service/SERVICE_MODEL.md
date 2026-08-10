@@ -1,14 +1,15 @@
 # Service model
 
-*Revised: 2026-08-09*
+*Revised: 2026-08-10*
 
 This page owns the Go service: its routes, embedded assets, and the invariant
 that it never receives a Spotify token and stores nothing but sanitized
 telemetry. Return to the [architecture index](../README.md).
 
 The service is one static binary. `main.go` embeds `web/index.html`,
-`web/pure.js`, `web/app.js`, `web/styles.css`, and `web/background.svg` at
-build time. It keeps no sessions and sets
+`web/pure.js`, `web/app.js`, `web/styles.css`, the default
+`web/background.svg`, and five optional JPEG backgrounds at build time. It
+keeps no sessions and sets
 no cookies. Every Spotify credential lives in the browser; the service's
 only secret-adjacent value is the public Spotify client ID, which is
 configuration, not a secret. Its one write surface is the telemetry store:
@@ -28,6 +29,7 @@ no HTTP read route over it. A telemetry storage failure logs and answers
 | `GET /app.js`     | embedded script, `text/javascript`, security headers  |
 | `GET /styles.css` | embedded stylesheet, `text/css`, security headers     |
 | `GET /background.svg` | embedded image, `image/svg+xml`, security headers |
+| `GET /background-{weave,veil,orbit,tide,prism}.jpg` | embedded JPEG, security headers |
 | `GET /api/config` | `{"spotify_client_id": ...}`, `no-store`, headers     |
 | `POST /api/telemetry` | `204` after a committed (or duplicate) report     |
 | `GET /healthz`    | `ok`, `text/plain`, no browser security headers       |
@@ -35,8 +37,9 @@ no HTTP read route over it. A telemetry storage failure logs and answers
 The embedded assets share one `serveAsset` helper that writes the given
 content type and the security headers. Routes are exact: Go 1.22 pattern
 matching rejects `/pure.js/`, `/app.js/`, `/styles.css/`, `/background.svg/`,
-and any unregistered path. `/{$}` matches only the root. The page, the
-scripts, and the stylesheet carry the browser security headers owned by the
+each background JPEG with a trailing slash, and any unregistered path. `/{$}`
+matches only the root. The page, scripts, stylesheet, and images carry the
+browser security headers owned by the
 [security model](../security/SECURITY_MODEL.md).
 
 ## Startup and configuration

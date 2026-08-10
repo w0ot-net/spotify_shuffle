@@ -1,6 +1,6 @@
 # Application model
 
-*Revised: 2026-08-09*
+*Revised: 2026-08-10*
 
 This page owns the browser application's structure: the two-script split, the
 purity rule, and the structural lifecycle. Which authorization outcome
@@ -10,16 +10,17 @@ produces which page state belongs to the
 
 ## Two scripts, one global
 
-`web/index.html` is a fixed document -- a status line, connect and
-disconnect buttons, a playlist status line, a track status line, a
-progress element, and the source list -- that loads two classic scripts
-with `defer`, in order:
+`web/index.html` is a fixed document -- a visual-background selector, a
+status line, connect and disconnect buttons, a playlist status line, a track
+status line, a progress element, and the source list -- that loads two classic
+scripts with `defer`, in order:
 
 1. `web/pure.js` defines a single `TrueShuffle` global containing the
    browser-independent value logic and error types: token-record building and
    validation, playlist- and track-page parsing, track URL construction and
    offset computation, track-page assembly, cache-record validation, the
-   multiset track difference, the Fisher-Yates shuffle, derived-name
+   visual-background choice validation, the multiset track difference, the
+   Fisher-Yates shuffle, derived-name
    derivation and lookup, the display filter, label and message formatting,
    and the paging-cursor check.
 2. `web/app.js` is the platform adapter. It reads `TrueShuffle` while
@@ -62,9 +63,12 @@ platform interface -- lands in `web/pure.js`, not in the adapter.
 ## Structural lifecycle
 
 `initialize()` is the sole entry point and runs once per page load. Its
-skeleton: verify Web Crypto support, load the public configuration, then
-branch on whether the location is the OAuth callback or an ordinary load.
-Connected paths finish by listing playlists.
+skeleton: restore the optional visual-background preference, verify Web Crypto
+support, load the public configuration, then branch on whether the location is
+the OAuth callback or an ordinary load. Connected paths finish by listing
+playlists. Background changes apply immediately and persist when local storage
+works; invalid or unavailable storage falls back to the original Ribbon image
+without affecting authorization or Spotify work.
 
 The page-state vocabulary the lifecycle renders:
 

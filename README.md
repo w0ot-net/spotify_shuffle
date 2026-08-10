@@ -46,8 +46,9 @@ The browser stores Spotify access and refresh tokens in `localStorage` under a
 versioned application key. The key retains the project's former
 `spotify_shuffle` namespace so browsers authorized before the TrueShuffle
 rename stay connected. Temporary OAuth state and the PKCE verifier use
-`sessionStorage`. The Go service receives neither token and exposes only the
-public Spotify client ID.
+`sessionStorage`. The selected visual background is a separate, non-sensitive
+`localStorage` preference. The Go service receives neither token and exposes
+only the public Spotify client ID.
 
 ## Run
 
@@ -61,7 +62,7 @@ TELEMETRY_DB_PATH=/tmp/trueshuffle-telemetry.sqlite go run .
 ```
 
 The app is deliberately gentle with Spotify's API: every request flows
-through one serial lane with at least a second between starts, a `429`'s
+through one serial lane with at least 250 milliseconds between starts, a `429`'s
 `Retry-After` is honored with at most one retry, and a long cooldown is
 remembered across reloads. Large cold reads are therefore honest about
 time -- a multi-thousand-track source takes minutes on first shuffle, and
@@ -123,10 +124,12 @@ origin, `https://accounts.spotify.com` for tokens, and
 other third-party code must use a separate origin and must not receive
 Spotify data.
 
-The page is themed by one first-party stylesheet served at `/styles.css`,
-over a first-party background image at `/background.svg`: a dark interface
-with translucent glass panels, sweeping violet-and-blue ribbons behind
-them, and a single green accent.
+The page is themed by one first-party stylesheet served at `/styles.css`: a
+dark interface with translucent glass panels and a single green accent. A
+compact Background selector offers the original violet-and-blue ribbon SVG
+plus five dark raster variations -- Weave, Veil, Orbit, Tide, and Prism --
+and remembers the choice in this browser. Every image is bundled into the
+first-party binary; the page loads no third-party visual assets.
 
 "Disconnect this browser" deletes the local token record and the cached track
 lists. It does not revoke the authorization grant in Spotify; reconnecting or

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -61,6 +62,12 @@ func TestAppPage(t *testing.T) {
 				"<h1>TrueShuffle</h1>",
 				`class="banner"`,
 				`id="connect"`,
+				`id="background"`,
+				`<option value="weave">Weave</option>`,
+				`<option value="veil">Veil</option>`,
+				`<option value="orbit">Orbit</option>`,
+				`<option value="tide">Tide</option>`,
+				`<option value="prism">Prism</option>`,
 				`id="logout"`,
 				`id="playlists"`,
 				`id="track-status"`,
@@ -144,6 +151,17 @@ func TestStylesheet(t *testing.T) {
 	if recorder.Body.Len() == 0 {
 		t.Error("stylesheet body is empty")
 	}
+	for _, marker := range []string{
+		`url("/background-weave.jpg")`,
+		`url("/background-veil.jpg")`,
+		`url("/background-orbit.jpg")`,
+		`url("/background-tide.jpg")`,
+		`url("/background-prism.jpg")`,
+	} {
+		if !strings.Contains(recorder.Body.String(), marker) {
+			t.Errorf("stylesheet does not contain %q", marker)
+		}
+	}
 }
 
 func TestBackgroundSVG(t *testing.T) {
@@ -161,6 +179,34 @@ func TestBackgroundSVG(t *testing.T) {
 	assertBrowserSecurityHeaders(t, recorder.Header())
 	if !strings.Contains(recorder.Body.String(), "<svg") {
 		t.Error("body is not an SVG document")
+	}
+}
+
+func TestBackgroundJPEGs(t *testing.T) {
+	for _, path := range []string{
+		"/background-weave.jpg",
+		"/background-veil.jpg",
+		"/background-orbit.jpg",
+		"/background-tide.jpg",
+		"/background-prism.jpg",
+	} {
+		t.Run(path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			recorder := httptest.NewRecorder()
+
+			testHandler(t).ServeHTTP(recorder, req)
+
+			if got, want := recorder.Code, http.StatusOK; got != want {
+				t.Fatalf("status code = %d, want %d", got, want)
+			}
+			if got, want := recorder.Header().Get("Content-Type"), "image/jpeg"; got != want {
+				t.Errorf("Content-Type = %q, want %q", got, want)
+			}
+			assertBrowserSecurityHeaders(t, recorder.Header())
+			if !bytes.HasPrefix(recorder.Body.Bytes(), []byte{0xff, 0xd8, 0xff}) {
+				t.Error("body does not have a JPEG signature")
+			}
+		})
 	}
 }
 
@@ -193,7 +239,19 @@ func TestPublicConfig(t *testing.T) {
 }
 
 func TestAppRoutesAreExact(t *testing.T) {
-	for _, path := range []string{"/callback/", "/pure.js/", "/app.js/", "/styles.css/", "/background.svg/", "/api/config/"} {
+	for _, path := range []string{
+		"/callback/",
+		"/pure.js/",
+		"/app.js/",
+		"/styles.css/",
+		"/background.svg/",
+		"/background-weave.jpg/",
+		"/background-veil.jpg/",
+		"/background-orbit.jpg/",
+		"/background-tide.jpg/",
+		"/background-prism.jpg/",
+		"/api/config/",
+	} {
 		t.Run(path, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, path, nil)
 			recorder := httptest.NewRecorder()

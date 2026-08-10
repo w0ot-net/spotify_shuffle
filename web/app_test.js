@@ -11,6 +11,7 @@ const {TextEncoder} = require("node:util");
 const pureSource = fs.readFileSync(path.join(__dirname, "pure.js"), "utf8");
 const appSource = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
 const tokenStorageKey = "spotify_shuffle.oauth.v1";
+const backgroundStorageKey = "trueshuffle.background.v1";
 const stateStorageKey = "spotify_shuffle.oauth.state.v1";
 const verifierStorageKey = "spotify_shuffle.oauth.verifier.v1";
 const tokenEndpoint = "https://accounts.spotify.com/api/token";
@@ -158,6 +159,7 @@ class FakeIndexedDBDatabase {
 class FakeElement {
   constructor(hidden) {
     this.textContent = "";
+    this.value = "";
     this.hidden = hidden;
     this.disabled = false;
     this.listeners = new Map();
@@ -194,6 +196,12 @@ class FakeElement {
   click() {
     const listener = this.listeners.get("click");
     assert.ok(listener, "click listener is registered");
+    listener();
+  }
+
+  change() {
+    const listener = this.listeners.get("change");
+    assert.ok(listener, "change listener is registered");
     listener();
   }
 }
@@ -371,7 +379,10 @@ function createHarness(options) {
   const waitStatusElement = new FakeElement(true);
   const cancelButton = new FakeElement(true);
   const playlistsElement = new FakeElement(true);
+  const backgroundSelect = new FakeElement(false);
+  backgroundSelect.value = "ribbon";
   const elements = {
+    background: backgroundSelect,
     status: statusElement,
     connect: connectButton,
     logout: logoutButton,
@@ -461,6 +472,7 @@ function createHarness(options) {
     }
   };
   const document = {
+    documentElement: {dataset: {}},
     getElementById(id) {
       return elements[id];
     },
@@ -493,6 +505,7 @@ function createHarness(options) {
   vm.runInContext(pureSource, context, {filename: "web/pure.js"});
   vm.runInContext(appSource, context, {filename: "web/app.js"});
   return {
+    backgroundSelect: backgroundSelect,
     cancelButton: cancelButton,
     connectButton: connectButton,
     historyPaths: historyPaths,
@@ -507,7 +520,8 @@ function createHarness(options) {
     telemetryReports: telemetryReports,
     trackProgressElement: trackProgressElement,
     trackStatusElement: trackStatusElement,
-    waitStatusElement: waitStatusElement
+    waitStatusElement: waitStatusElement,
+    documentElement: document.documentElement
   };
 }
 
@@ -567,6 +581,55 @@ async function settleUntil(condition) {
     await new Promise((resolve) => setImmediate(resolve));
   }
 }
+
+test("a stored background preference is restored", async () => {
+  const localStorage = new FakeStorage({[backgroundStorageKey]: "veil"});
+  const harness = createHarness({localStorage: localStorage});
+
+  await settle();
+
+  assert.equal(harness.backgroundSelect.value, "veil");
+  assert.equal(harness.documentElement.dataset.background, "veil");
+});
+
+test("an invalid background preference falls back to the ribbon default", async () => {
+  const localStorage = new FakeStorage({[backgroundStorageKey]: "unknown"});
+  const harness = createHarness({localStorage: localStorage});
+
+  await settle();
+
+  assert.equal(harness.backgroundSelect.value, "ribbon");
+  assert.equal("background" in harness.documentElement.dataset, false);
+  assert.equal(localStorage.getItem(backgroundStorageKey), null);
+});
+
+test("background changes apply immediately and persist when storage works", async () => {
+  const localStorage = new FakeStorage();
+  const harness = createHarness({localStorage: localStorage});
+  await settle();
+
+  harness.backgroundSelect.value = "orbit";
+  harness.backgroundSelect.change();
+  assert.equal(harness.documentElement.dataset.background, "orbit");
+  assert.equal(localStorage.getItem(backgroundStorageKey), "orbit");
+
+  harness.backgroundSelect.value = "ribbon";
+  harness.backgroundSelect.change();
+  assert.equal("background" in harness.documentElement.dataset, false);
+  assert.equal(localStorage.getItem(backgroundStorageKey), null);
+});
+
+test("background changes remain page-local when storage is unavailable", async () => {
+  const localStorage = new FakeStorage({}, {get: true, set: true});
+  const harness = createHarness({localStorage: localStorage});
+  await settle();
+
+  harness.backgroundSelect.value = "tide";
+  harness.backgroundSelect.change();
+
+  assert.equal(harness.backgroundSelect.value, "tide");
+  assert.equal(harness.documentElement.dataset.background, "tide");
+});
 
 const temporaryRefreshCases = [
   {

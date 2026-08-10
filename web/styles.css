@@ -47,19 +47,35 @@ body {
   background: #05070c;
 }
 
-/* The background is sharp on purpose: colored fields for life plus a crisp
-   dot grid for detail. It stays crisp in the open, and only the glass
-   panels blur it -- which is what makes the frost visible. Fixed and
-   decorative, behind all content. */
-/* A dark canvas of silky violet-and-blue ribbons -- an authored SVG that
-   stays sharp in the open, so the glass panels visibly frost it where they
-   overlap. Fixed and decorative, behind all content. */
+/* The authored ribbon SVG remains the default. Five dark raster variations
+   preserve the same quiet center and luminous edge detail, so every choice
+   stays legible behind the frosted panels. */
 .aurora {
   position: fixed;
   inset: 0;
   z-index: -1;
   pointer-events: none;
   background: #070610 url("/background.svg") center / cover no-repeat;
+}
+
+html[data-background="weave"] .aurora {
+  background-image: url("/background-weave.jpg");
+}
+
+html[data-background="veil"] .aurora {
+  background-image: url("/background-veil.jpg");
+}
+
+html[data-background="orbit"] .aurora {
+  background-image: url("/background-orbit.jpg");
+}
+
+html[data-background="tide"] .aurora {
+  background-image: url("/background-tide.jpg");
+}
+
+html[data-background="prism"] .aurora {
+  background-image: url("/background-prism.jpg");
 }
 
 .app {
@@ -101,6 +117,40 @@ h1 {
   margin: 0.5rem 0 0;
   color: var(--muted);
   font-size: 0.9rem;
+}
+
+.background-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: 0.9rem;
+  padding: 0.35rem 0.45rem 0.35rem 0.65rem;
+  border: 1px solid var(--edge);
+  background: rgba(6, 7, 12, 0.52);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.background-picker select {
+  border: 0;
+  border-left: 1px solid var(--edge);
+  border-radius: 0;
+  padding: 0.25rem 1.7rem 0.25rem 0.55rem;
+  background-color: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.background-picker option {
+  background: var(--ground);
+  color: var(--fg);
 }
 
 /* Glass panels: a light, see-through tint over a strong blur, so the sharp

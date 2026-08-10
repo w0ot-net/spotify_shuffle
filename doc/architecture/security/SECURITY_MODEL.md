@@ -1,6 +1,6 @@
 # Security model
 
-*Revised: 2026-08-09*
+*Revised: 2026-08-10*
 
 This page owns the rules that confine Spotify data to intended origins: the
 Content Security Policy the service sets and the coding rules the browser
@@ -12,7 +12,7 @@ send Spotify data only to Spotify.
 
 ## Response headers
 
-The page and both scripts are served with:
+The page and all first-party browser assets are served with:
 
 - `Content-Security-Policy` (below);
 - `Referrer-Policy: no-referrer`, so the app URL never leaks to Spotify or
@@ -25,7 +25,7 @@ The page and both scripts are served with:
 default-src 'none'            nothing loads unless allowed below
 script-src 'self'             only first-party scripts; no inline, no eval
 style-src 'self'              only the first-party stylesheet; no inline style
-img-src 'self'                only the first-party background image; no data:
+img-src 'self'                only first-party background images; no data:
 connect-src 'self'            /api/config
   https://accounts.spotify.com    token exchange and refresh (the authorize
                                   step is a navigation, not a fetch)
@@ -35,8 +35,8 @@ base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'
 
 `default-src 'none'` means the allowlist is exhaustive: `style-src 'self'`
 permits the one first-party stylesheet and no inline style, `img-src 'self'`
-permits the one first-party background image and no `data:` or third-party
-image, and there is still no permitted font or frame source. Adding any such
+permits the bundled first-party background choices and no `data:` or
+third-party image, and there is still no permitted font or frame source. Adding any such
 asset requires its own directive, deliberately. Third-party scripts and styles --
 analytics, advertising, anything -- must never load on this origin; a page
 that wants them needs a separate origin without Spotify data.

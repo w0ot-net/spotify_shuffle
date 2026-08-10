@@ -1,10 +1,11 @@
 # Data model
 
-*Revised: 2026-08-09*
+*Revised: 2026-08-10*
 
-This page owns the browser's persistent track data: the IndexedDB cache,
-its record shape, the validity rule, and the degrade and disconnect
-postures. Return to the [architecture index](../README.md).
+This page owns the browser's persistent local data: the IndexedDB caches,
+small `localStorage` application records, their validity rules, and the
+degrade and disconnect postures. Return to the
+[architecture index](../README.md).
 
 ## One store, two record shapes
 
@@ -84,6 +85,15 @@ cannot hammer Spotify during a pause. Invalid and expired records are
 removed on read; an unwritable store degrades to the same deadline in page
 memory. The record carries no account data and is application-level rather
 than authorization state, so disconnect does not clear it.
+
+## The background preference is visual state
+
+`localStorage` key `trueshuffle.background.v1` holds one value from the fixed
+background vocabulary: `ribbon`, `weave`, `veil`, `orbit`, `tide`, or `prism`.
+`ribbon` is the default and is represented by no stored record. An invalid
+record is discarded; unavailable storage leaves selection working for the
+current page only. The preference contains no Spotify or account data and
+survives disconnect independently of authorization and cached tracks.
 
 ## Disconnect deletes the database
 
