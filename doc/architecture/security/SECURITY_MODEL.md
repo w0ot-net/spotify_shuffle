@@ -24,6 +24,7 @@ The page and both scripts are served with:
 ```text
 default-src 'none'            nothing loads unless allowed below
 script-src 'self'             only first-party scripts; no inline, no eval
+style-src 'self'              only the first-party stylesheet; no inline style
 connect-src 'self'            /api/config
   https://accounts.spotify.com    token exchange and refresh (the authorize
                                   step is a navigation, not a fetch)
@@ -31,11 +32,12 @@ connect-src 'self'            /api/config
 base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'
 ```
 
-`default-src 'none'` means the allowlist is exhaustive: there is currently
-no permitted stylesheet, image, font, or frame source. Adding any such asset
-requires its own directive, deliberately. Third-party scripts -- analytics,
-advertising, anything -- must never run on this origin; a page that wants
-them needs a separate origin without Spotify data.
+`default-src 'none'` means the allowlist is exhaustive: `style-src 'self'`
+permits the one first-party stylesheet and no inline style, and there is
+still no permitted image, font, or frame source. Adding any such asset
+requires its own directive, deliberately. Third-party scripts and styles --
+analytics, advertising, anything -- must never load on this origin; a page
+that wants them needs a separate origin without Spotify data.
 
 ## Rules the app code obeys
 
@@ -47,8 +49,10 @@ them needs a separate origin without Spotify data.
 - **Third-party text never becomes markup.** Playlist names are
   attacker-influenced strings. List entries are built with `createElement`
   and `textContent`; `innerHTML` is never assigned.
-- **No inline script, ever.** The page wires all behavior from the two
-  served scripts, keeping `script-src 'self'` honest.
+- **No inline script or style, ever.** The page wires all behavior from the
+  two served scripts and all presentation from the one served stylesheet,
+  keeping `script-src 'self'` and `style-src 'self'` honest; a test asserts
+  the served page carries no inline `style=` attribute or `<style>` block.
 - **Telemetry is sanitized at the source.** The rate-limit reports the page
   posts to `/api/telemetry` carry bounded enums and numbers only -- request
   roles, timing, statuses, counts -- never tokens, account or playlist

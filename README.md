@@ -115,12 +115,16 @@ curl http://127.0.0.1:8080/healthz
 ## Browser security
 
 The authenticated application origin must load only repository-owned
-JavaScript. Response headers enforce a restrictive Content Security Policy and
-do not permit third-party scripts, inline scripts, or `eval`. The policy allows
-browser connections only to this origin, `https://accounts.spotify.com` for
-tokens, and `https://api.spotify.com` for Web API reads. Advertising,
-analytics, or other third-party JavaScript must use a separate origin and must
-not receive Spotify data.
+JavaScript and CSS. Response headers enforce a restrictive Content Security
+Policy and do not permit third-party scripts or styles, inline scripts or
+styles, or `eval`. The policy allows browser connections only to this
+origin, `https://accounts.spotify.com` for tokens, and
+`https://api.spotify.com` for Web API reads. Advertising, analytics, or
+other third-party code must use a separate origin and must not receive
+Spotify data.
+
+The page is themed by one first-party stylesheet served at `/styles.css`: a
+dark interface with translucent panels and a single green accent.
 
 "Disconnect this browser" deletes the local token record and the cached track
 lists. It does not revoke the authorization grant in Spotify; reconnecting or

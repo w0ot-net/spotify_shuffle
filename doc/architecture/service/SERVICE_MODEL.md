@@ -7,7 +7,7 @@ that it never receives a Spotify token and stores nothing but sanitized
 telemetry. Return to the [architecture index](../README.md).
 
 The service is one static binary. `main.go` embeds `web/index.html`,
-`web/pure.js`, and `web/app.js` at build time. It keeps no sessions and sets
+`web/pure.js`, `web/app.js`, and `web/styles.css` at build time. It keeps no sessions and sets
 no cookies. Every Spotify credential lives in the browser; the service's
 only secret-adjacent value is the public Spotify client ID, which is
 configuration, not a secret. Its one write surface is the telemetry store:
@@ -25,13 +25,16 @@ no HTTP read route over it. A telemetry storage failure logs and answers
 | `GET /callback`   | the same embedded page, for the OAuth redirect        |
 | `GET /pure.js`    | embedded script, `text/javascript`, security headers  |
 | `GET /app.js`     | embedded script, `text/javascript`, security headers  |
+| `GET /styles.css` | embedded stylesheet, `text/css`, security headers     |
 | `GET /api/config` | `{"spotify_client_id": ...}`, `no-store`, headers     |
 | `POST /api/telemetry` | `204` after a committed (or duplicate) report     |
 | `GET /healthz`    | `ok`, `text/plain`, no browser security headers       |
 
-Routes are exact: Go 1.22 pattern matching rejects `/pure.js/`, `/app.js/`,
-and any unregistered path. `/{$}` matches only the root. The page and both
-scripts carry the browser security headers owned by the
+The three assets share one `serveAsset` helper that writes the given
+content type and the security headers. Routes are exact: Go 1.22 pattern
+matching rejects `/pure.js/`, `/app.js/`, `/styles.css/`,
+and any unregistered path. `/{$}` matches only the root. The page, the
+scripts, and the stylesheet carry the browser security headers owned by the
 [security model](../security/SECURITY_MODEL.md).
 
 ## Startup and configuration
