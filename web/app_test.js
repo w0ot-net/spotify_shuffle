@@ -1936,8 +1936,8 @@ test("a liked-tracks 429 locks only Liked Songs and says so honestly", async () 
   await settle();
 
   assert.equal(likedCalls, 1, "a liked 429 is never retried");
-  assert.match(harness.trackStatusElement.textContent, /paused Liked Songs reads/);
-  assert.match(harness.trackStatusElement.textContent, /about 30 minutes/);
+  assert.match(harness.trackStatusElement.textContent, /locked Liked Songs reads/);
+  assert.match(harness.trackStatusElement.textContent, /Time remaining: 24h 0m\./);
   assert.match(harness.trackStatusElement.textContent, /Playlist shuffles still work\./);
   assert.ok(localStorage.getItem("trueshuffle.liked-cooldown.v1") !== null,
     "the liked lockout is persisted");
@@ -1961,7 +1961,7 @@ test("a liked click during the lockout sends nothing and names the remaining wai
       request.url.startsWith("https://api.spotify.com/v1/me/tracks")).length,
     0,
     "no liked request is dispatched during the lockout");
-  assert.match(harness.trackStatusElement.textContent, /about 10 minutes/);
+  assert.match(harness.trackStatusElement.textContent, /Time remaining: 10m\./);
   const shuffle = harness.telemetryReports.find((report) => report.kind === "liked-shuffle");
   assert.equal(shuffle.events[0].result, "cooldown-blocked");
   assert.equal(shuffle.events[0].status, null, "no Spotify status is invented");

@@ -122,10 +122,12 @@ These are properties of this repository, not of Spotify:
   `Retry-After` the cooldown is 30 seconds
   ([`web/pure.js`](../../../web/pure.js), cooldown policy). Liked-tracks
   `429`s are the exception since 2026-08-10: never replayed, and stored
-  as a dedicated local lockout pinned to the observed ~30-minute window
-  (`likedCooldownMs`) that blocks only Liked Songs and tells the user
-  the estimate, because the real wait is CORS-invisible per the
-  observation above. **[code]**
+  as a dedicated local lockout pinned to the observed 24-hour window
+  (`likedCooldownMs`) that blocks only Liked Songs and reports its exact
+  remaining time, because the real wait is CORS-invisible per the
+  observation above. The shorter 1,808-second tail penalty is real but
+  unreadable in-browser, so the 24-hour bound is deliberately
+  conservative. **[code]**
 
 Combined with the account-scoped quota facts above: one user repeatedly
 cold-reading a large library can exhaust the development-mode quota for

@@ -89,11 +89,11 @@ than authorization state, so disconnect does not clear it.
 `trueshuffle.liked-cooldown.v1` holds the same `{until}` shape for the
 liked-tracks lockout alone. Spotify penalizes `/v1/me/tracks` separately
 from playlist endpoints and hides that endpoint's `Retry-After` from
-browser scripts, so the app pins its observed roughly-30-minute window
-(see [rate limiting facts](../integration/RATE_LIMITING.md)) in a record
-of its own: Liked Songs blocks locally with an honest estimate while
-playlist shuffling stays available. Lifecycle rules match the general
-cooldown record.
+browser scripts, so the app pins the 24-hour lockout its incidents have
+shown (see [rate limiting facts](../integration/RATE_LIMITING.md)) in a
+record of its own: Liked Songs blocks locally with the exact remaining
+time of that window while playlist shuffling stays available. Lifecycle
+rules match the general cooldown record.
 
 ## The background preference is visual state
 

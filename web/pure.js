@@ -479,21 +479,27 @@ var TrueShuffle = (function () {
     return "Spotify asked us to slow down -- retrying in " + seconds + "s.";
   }
 
-  // The Liked Songs library endpoint has its own Spotify-side limit with
-  // roughly half-hour penalties. Spotify sends Retry-After on those 429s
+  // The Liked Songs library endpoint has its own Spotify-side limit whose
+  // lockouts have run about 24 hours in this app's recorded incidents
+  // (2026-08-09 and 2026-08-10). Spotify sends Retry-After on those 429s
   // but does not expose the header to browser scripts (CORS), so the page
-  // can never read the real wait; this pins the window observed
-  // out-of-band (1,808 seconds on 2026-08-10) instead of the generic
-  // 30-second fallback, which only restarts the penalty.
-  const likedCooldownMs = 30 * 60 * 1000;
+  // cannot read Spotify's own deadline; it counts down the observed
+  // 24-hour window from the 429 it saw instead. An out-of-band probe near
+  // one lockout's end measured a shorter 1,808-second tail penalty, so
+  // the window is the conservative bound, not a promise.
+  const likedCooldownMs = 24 * 60 * 60 * 1000;
+
+  function remainingTimeLabel(remainingMs) {
+    const totalMinutes = Math.max(1, Math.ceil(remainingMs / 60000));
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return hours > 0 ? hours + "h " + minutes + "m" : minutes + "m";
+  }
 
   function likedLockoutMessage(remainingMs) {
-    const minutes = Math.max(1, Math.ceil(remainingMs / 60000));
-    return "Spotify has paused Liked Songs reads for this app. Its library " +
-      "limit is separate from playlists, and browsers cannot see the exact " +
-      "wait: try again in about " + minutes +
-      (minutes === 1 ? " minute" : " minutes") +
-      "; retrying sooner restarts the penalty. Playlist shuffles still work.";
+    return "Spotify has locked Liked Songs reads for this app. " +
+      "Time remaining: " + remainingTimeLabel(remainingMs) + ". " +
+      "Playlist shuffles still work.";
   }
 
   // Failure-preserving truncation: drop the oldest successes first, then the
@@ -647,6 +653,7 @@ var TrueShuffle = (function () {
     readPlaylistItemPage: readPlaylistItemPage,
     readPlaylistSnapshot: readPlaylistSnapshot,
     readPlaylistTotal: readPlaylistTotal,
+    remainingTimeLabel: remainingTimeLabel,
     remainingTrackOffsets: remainingTrackOffsets,
     rollingRequestHistory: rollingRequestHistory,
     shadowedRowsNote: shadowedRowsNote,

@@ -56,14 +56,17 @@ test("normalizeBackgroundChoice accepts only the fixed visual vocabulary", () =>
   }
 });
 
-test("likedLockoutMessage states the estimate and the playlist escape", () => {
-  assert.equal(TrueShuffle.likedCooldownMs, 30 * 60 * 1000);
+test("likedLockoutMessage reports the exact remaining time", () => {
+  assert.equal(TrueShuffle.likedCooldownMs, 24 * 60 * 60 * 1000);
   const full = TrueShuffle.likedLockoutMessage(TrueShuffle.likedCooldownMs);
-  assert.match(full, /paused Liked Songs reads/);
-  assert.match(full, /about 30 minutes/);
+  assert.match(full, /locked Liked Songs reads/);
+  assert.match(full, /Time remaining: 24h 0m\./);
   assert.match(full, /Playlist shuffles still work\./);
-  assert.match(TrueShuffle.likedLockoutMessage(30 * 1000), /about 1 minute;/);
-  assert.match(TrueShuffle.likedLockoutMessage(61 * 1000), /about 2 minutes;/);
+  assert.equal(TrueShuffle.remainingTimeLabel(23 * 3600000 + 41 * 60000), "23h 41m");
+  assert.equal(TrueShuffle.remainingTimeLabel(3600000), "1h 0m");
+  assert.equal(TrueShuffle.remainingTimeLabel(3599999), "1h 0m");
+  assert.equal(TrueShuffle.remainingTimeLabel(59 * 60000), "59m");
+  assert.equal(TrueShuffle.remainingTimeLabel(30 * 1000), "1m");
 });
 
 test("playlistLabel pluralizes and omits unknown totals", () => {

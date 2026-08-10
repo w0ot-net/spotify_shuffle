@@ -98,9 +98,9 @@ The page-state vocabulary the lifecycle renders:
   target with a rerun
   offered), cancelled (naming the possibly partial target when writing
   had begun), failure, and the liked lockout (Spotify's separate Liked
-  Songs limit: the message carries the remaining-minutes estimate, that
-  earlier retries restart the penalty, and that playlist shuffles still
-  work -- see the [Spotify integration](../integration/SPOTIFY_INTEGRATION.md));
+  Songs limit: the message carries the exact remaining time of the
+  observed 24-hour window and that playlist shuffles still work -- see
+  the [Spotify integration](../integration/SPOTIFY_INTEGRATION.md));
 - the waiting state: whenever the request lane pauses beyond its routine
   gap, a dedicated line counts down "Spotify asked us to slow down --
   retrying in Ns." and disappears the moment the wait ends. Like the

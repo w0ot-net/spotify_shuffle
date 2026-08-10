@@ -74,10 +74,10 @@ time -- a multi-thousand-track source takes minutes on first shuffle, and
 seconds afterward thanks to the caches. Waits beyond the routine gap show
 a live countdown naming the reason, and an in-progress shuffle can always
 be cancelled. Liked Songs gets special honesty: Spotify rate-limits that
-library endpoint separately and hides its retry guidance from browsers,
-so a `429` there locks only Liked Songs locally for the observed
-half-hour window and the page says exactly that -- including that
-retrying sooner restarts the penalty and that playlist shuffles still
+library endpoint separately, hides its retry guidance from browsers, and
+has locked it for about 24 hours in recorded incidents, so a `429` there
+locks only Liked Songs locally for that window and the page reports the
+exact remaining time, along with the fact that playlist shuffles still
 work.
 
 `TELEMETRY_DB_PATH` names the SQLite file (created mode 0600) holding
