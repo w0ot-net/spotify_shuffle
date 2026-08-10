@@ -43,72 +43,26 @@ body {
   color: var(--fg);
   line-height: 1.5;
   overflow-x: hidden;
-  /* A calm, abstract field: a soft central green glow gives the glass
-     something to refract, over a quiet diagonal base. */
-  background:
-    radial-gradient(72vmax 56vmax at 50% 20%, rgba(29, 185, 84, 0.1), transparent 66%),
-    radial-gradient(52vmax 52vmax at 84% 82%, rgba(24, 96, 116, 0.12), transparent 70%),
-    linear-gradient(158deg, #080b12 0%, #05070c 58%, #070a12 100%);
-  background-attachment: fixed;
+  background: #05070c;
 }
 
-/* An abstract aurora of drifting, heavily blurred color blobs behind the
-   glass -- this is what the panels refract, and what makes the frost read.
-   Fixed and decorative; it sits behind all content. */
+/* The background is sharp on purpose: colored fields for life plus a crisp
+   dot grid for detail. It stays crisp in the open, and only the glass
+   panels blur it -- which is what makes the frost visible. Fixed and
+   decorative, behind all content. */
 .aurora {
   position: fixed;
   inset: 0;
   z-index: -1;
-  overflow: hidden;
   pointer-events: none;
-}
-
-/* Muted, diffuse washes -- no blend-mode pop, low opacity, heavy blur, and
-   a slow drift, so it reads as atmosphere rather than colored spotlights. */
-.blob {
-  position: absolute;
-  width: 60vmax;
-  height: 60vmax;
-  border-radius: 50%;
-  filter: blur(100px);
-  opacity: 0.32;
-  will-change: transform;
-}
-
-.blob-green {
-  background: radial-gradient(circle, rgba(29, 185, 84, 0.55) 0%, transparent 70%);
-  top: -22vmax;
-  left: -14vmax;
-  animation: drift-a 82s ease-in-out infinite alternate;
-}
-
-.blob-teal {
-  background: radial-gradient(circle, rgba(18, 132, 132, 0.5) 0%, transparent 70%);
-  top: 18vmax;
-  right: -24vmax;
-  animation: drift-b 96s ease-in-out infinite alternate;
-}
-
-.blob-slate {
-  background: radial-gradient(circle, rgba(46, 74, 120, 0.5) 0%, transparent 72%);
-  bottom: -26vmax;
-  left: 8vmax;
-  animation: drift-c 90s ease-in-out infinite alternate;
-}
-
-@keyframes drift-a {
-  from { transform: translate3d(0, 0, 0) scale(1); }
-  to { transform: translate3d(4vmax, 5vmax, 0) scale(1.08); }
-}
-
-@keyframes drift-b {
-  from { transform: translate3d(0, 0, 0) scale(1.04); }
-  to { transform: translate3d(-5vmax, 4vmax, 0) scale(0.95); }
-}
-
-@keyframes drift-c {
-  from { transform: translate3d(0, 0, 0) scale(0.96); }
-  to { transform: translate3d(5vmax, -4vmax, 0) scale(1.07); }
+  background-color: #05070c;
+  background-image:
+    radial-gradient(rgba(255, 255, 255, 0.05) 1.1px, transparent 1.6px),
+    radial-gradient(38vmax 30vmax at 16% 20%, rgba(29, 185, 84, 0.4), transparent 60%),
+    radial-gradient(34vmax 30vmax at 88% 26%, rgba(20, 150, 150, 0.32), transparent 60%),
+    radial-gradient(42vmax 36vmax at 74% 96%, rgba(52, 84, 168, 0.34), transparent 62%),
+    linear-gradient(158deg, #0a0e16 0%, #05070c 60%, #080b14 100%);
+  background-size: 30px 30px, auto, auto, auto, auto;
 }
 
 .app {
@@ -152,24 +106,28 @@ h1 {
   font-size: 0.9rem;
 }
 
-/* Glass panels. The translucent white gradient is what makes the panel
-   read as a frosted sheet -- visibly lighter than the background and
-   see-through -- so the glass holds up even where backdrop-filter is
-   unsupported or there is little color behind. backdrop-filter then adds
-   the frost, and the lit top edge sells the pane. */
+/* Glass panels: a light, see-through tint over a strong blur, so the sharp
+   background shows through as frost. The lit top edge and border define the
+   pane; the tint stays low so what reads is mostly the blurred background,
+   not white. */
 .panel {
-  background: linear-gradient(157deg,
-    rgba(255, 255, 255, 0.13) 0%,
-    rgba(255, 255, 255, 0.04) 60%,
-    rgba(255, 255, 255, 0.07) 100%);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: var(--radius);
   padding: 1.15rem 1.25rem;
   box-shadow:
-    0 22px 48px rgba(0, 0, 0, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.24);
-  backdrop-filter: blur(26px) saturate(135%);
-  -webkit-backdrop-filter: blur(26px) saturate(135%);
+    0 22px 48px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(28px) saturate(150%);
+  -webkit-backdrop-filter: blur(28px) saturate(150%);
+}
+
+/* If the browser cannot frost, a slightly stronger tint keeps the pane
+   legible over the sharp background instead of leaving text on raw grid. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .panel {
+    background: rgba(16, 20, 30, 0.72);
+  }
 }
 
 #status {
@@ -346,10 +304,6 @@ progress::-moz-progress-bar {
   *::before,
   *::after {
     transition: none !important;
-    animation: none !important;
-  }
-
-  .blob {
     animation: none !important;
   }
 
