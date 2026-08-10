@@ -127,3 +127,34 @@ is the stuck iPhone itself: after deployment, reload the page there, tap
   settings involved.
 - The purity grep stays clean; all prior tests pass unmodified except the
   refresh-failure message and visibility assertions named in scope.
+
+## Execution Notes
+
+Executed 2026-08-10. Implementation commit `18e4286`.
+
+Implemented exactly as planned: `renderError` takes an explicit
+`canDisconnect`, all six call sites name their offer, only the
+temporary-refresh-failure site passes true with the extended message, the
+five temporary-failure harness cases assert the visible enabled button
+and the new wording, one new case proves the full tap-through recovery
+(token kept until the tap, cleared by it, Connect offered after), and the
+authorization-model and application-model sentences record the escape.
+
+Deviations: none in the change itself. One validation note: the shared
+worktree carried an unrelated in-progress background-asset swap
+(`main.go`, `web/background.svg` deleted, `web/background.png` untracked)
+whose committed test still expects the SVG, so `go test ./...` fails in
+the dirty worktree for reasons outside this plan. The plan's validation
+was therefore run in a clean temporary worktree at `HEAD` plus only this
+plan's files: `go test ./...` passes there, and the JavaScript suites
+pass (120 of 120) both there and in the working tree. The unrelated
+changes were left untouched and uncommitted.
+
+Validation, all passing as described above: `gofmt -l main.go
+main_test.go` (no output), `go test ./...` (clean worktree), `go vet
+./...`, `node --check` on both web scripts, `node --test web/pure_test.js
+web/app_test.js` (120 pass, 0 fail), `git diff --check`, and the
+inverted purity grep.
+
+Live confirmation -- the stuck iPhone recovering entirely from the page
+-- is the user's next action after deployment.
