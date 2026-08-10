@@ -221,3 +221,21 @@ web/app_test.js` (119 pass, 0 fail, unmodified -- proof the DOM
 restructure preserved every contract), `git diff --check`, and an ASCII
 check of the new files. Local server confirmed `/styles.css` returns 200
 `text/css` and the served CSP carries `style-src 'self'`.
+
+Deployment, completed 2026-08-10 under the standing deployment direction
+through the private runbook: release
+`13269d6494aeb7609319e570f8968c63d5f142dd` (binary SHA-256
+`a67d95538260c03e3483...`, embedded revision matching,
+`vcs.modified=false`); host Go and browser suites passed; previous release
+`266af0f...` retained; after the atomic switch the service is active as
+`trueshuffle` with zero restarts and zero warning journal entries.
+
+The new release was fully validated over loopback: `/styles.css` returns
+200 `text/css`, the served page links the sheet, the CSP header carries
+`style-src 'self'`, and a loopback-resolved HTTPS request through Apache
+returned 200 -- so the public-facing stack serves the theme end to end.
+One caveat, an infrastructure condition rather than a deployment fault:
+at deploy time the host could not resolve `shuffle.p.a-9.co` (`a-9.co`
+and other names resolved normally), so the public-URL health check could
+not run from the host. The service is healthy and was not rolled back;
+public DNS for the subdomain should be confirmed separately.
