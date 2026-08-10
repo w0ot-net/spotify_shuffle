@@ -169,3 +169,13 @@ No Go file changed.
 
 Deployment ships as one release with the request-control plan, whose
 dependency on running telemetry is satisfied by their shared activation.
+
+Deployment, completed 2026-08-09 under the chain-execution direction
+through the private runbook, as one release with the companion plan:
+release `93469fec378fec2685c5c82580dd0083dbd6f1d0` (binary SHA-256
+`536a7a02448e1faf795b...`, embedded revision matching,
+`vcs.modified=false`); host Go and browser suites passed; previous release
+`7abc90e...` retained; after the atomic switch the service is active as
+`trueshuffle` with zero restarts, loopback and public health all 200, the
+telemetry database untouched, and zero warning journal entries.
+

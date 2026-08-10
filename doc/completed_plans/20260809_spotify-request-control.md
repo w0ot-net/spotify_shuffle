@@ -272,3 +272,13 @@ nothing dispatched after), `git diff --check`, and the purity grep. The
 replaced pool test and the rewritten oversized-library test were the two
 behavior-change updates the plan authorized; every other prior assertion
 is unmodified.
+
+Deployment, completed 2026-08-09 under the chain-execution direction
+through the private runbook, as one release with the companion plan:
+release `93469fec378fec2685c5c82580dd0083dbd6f1d0` (binary SHA-256
+`536a7a02448e1faf795b...`, embedded revision matching,
+`vcs.modified=false`); host Go and browser suites passed; previous release
+`7abc90e...` retained; after the atomic switch the service is active as
+`trueshuffle` with zero restarts, loopback and public health all 200, the
+telemetry database untouched, and zero warning journal entries.
+
