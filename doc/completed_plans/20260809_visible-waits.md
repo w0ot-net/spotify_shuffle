@@ -214,3 +214,13 @@ rate-limit wait ending the chain with nothing further dispatched, and
 cancel mid-write naming the partial target), `git diff --check`, and the
 purity grep. The second-429 message expectation was the single authorized
 assertion change.
+
+Deployment, completed 2026-08-09 under the standing deployment direction
+through the private runbook: release
+`266af0fd4f4a66ed6017b6a1b854e864d134842a` (binary SHA-256
+`c6fb89e2f6bc1cf6f160...`, embedded revision matching,
+`vcs.modified=false`); host Go and browser suites passed; previous release
+`93469fe...` retained; after the atomic switch the service is active as
+`trueshuffle` with zero restarts, loopback and public health 200, both new
+page elements present in the served public page, and zero warning journal
+entries.
