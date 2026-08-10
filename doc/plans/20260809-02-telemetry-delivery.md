@@ -1,5 +1,7 @@
 # Plan: Acknowledged Telemetry Delivery
 
+*Distilled: 2026-08-09*
+
 Depends on `20260809-01-rate-limit-telemetry.md`.
 
 ## Summary

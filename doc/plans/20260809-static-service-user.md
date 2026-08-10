@@ -1,5 +1,7 @@
 # Plan: Stable Service User and App Data Directory
 
+*Distilled: 2026-08-09*
+
 ## Summary
 
 Keep systemd only as TrueShuffle's process supervisor, but replace its dynamic

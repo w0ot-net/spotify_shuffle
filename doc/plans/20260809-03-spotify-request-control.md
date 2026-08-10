@@ -1,5 +1,7 @@
 # Plan: Spotify Request Control
 
+*Distilled: 2026-08-09*
+
 Depends on `20260809-02-telemetry-delivery.md`.
 
 ## Summary

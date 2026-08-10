@@ -1,5 +1,7 @@
 # Plan: Rate-Limit Telemetry
 
+*Distilled: 2026-08-09*
+
 Depends on `20260809-static-service-user.md` being executed before production
 deployment.
 
