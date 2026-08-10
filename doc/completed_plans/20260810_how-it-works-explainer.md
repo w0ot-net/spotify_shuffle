@@ -199,3 +199,18 @@ Validation, all passing: `gofmt -l main_test.go` (no output),
 the explainer and disconnect note, the stylesheet delivers their rules,
 and `/healthz` answers ok. No JavaScript changed, so the Node suites
 were not run, per the plan.
+
+Deployment, completed 2026-08-10 under the standing deployment direction
+and the private operations runbook: release
+`783dbdba8fd5ea1427741137835683f621141654` (also carrying the concurrent
+rate-limiting documentation commit), embedded `vcs.revision` matching and
+`vcs.modified` false, binary SHA-256
+`c2577ee755478049062739e90404ecdce2c877ba896e223e8c72f2350086b285`. Host
+validation passed in full: `go test ./...`, `go vet ./...`, syntax checks
+on both web scripts, and 126 of 126 browser tests via direct `node`
+execution. The previous release `c37fcde...` was retained and `current`
+switched atomically; after restart the service is active with zero
+restarts, loopback and public health are green, the public origin serves
+the explainer heading, all three pinned copy phrases, and both note
+rules in the stylesheet, and no warning-or-higher journal entries
+appeared.
