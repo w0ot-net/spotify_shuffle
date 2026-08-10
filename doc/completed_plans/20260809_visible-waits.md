@@ -182,3 +182,35 @@ on the deployed site rather than any deliberate provocation.
 - Spotify-facing behavior and telemetry are unchanged; the purity grep
   stays clean; every prior test passes with the single authorized
   assertion change.
+
+## Execution Notes
+
+Executed 2026-08-09. Implementation commit `753ccbb`.
+
+Implemented as planned: `OperationCancelledError` and
+`waitCountdownMessage` in `web/pure.js`; `pacedWait` wrapping the lane's
+single wait site with the 2-second notice threshold, one-second slices,
+and teardown in `finally`; the visual-only `wait-status` line and the
+`cancel` button in `web/index.html` with their Go page markers; cancel
+wired inside `runShuffle`'s existing gate to the operation's controller
+(the same one disconnect aborts), with `wasCancelled` classifying the
+pure class and platform `AbortError`s at every catch -- loaders and the
+write render "Cancelled." (naming the possibly partial target mid-write),
+the row-less listing stays silent, and telemetry reports `abandoned`; the
+final-429 condition was deleted so every unretried 429 surfaces
+"Spotify asked for a pause. Try again after HH:MM:SS." on all surfaces.
+
+Deviations: none. Two test-construction notes: the harness's fake fetch
+abort now throws an `AbortError`-shaped error so both cancellation paths
+classify, and the no-further-dispatch assertion counts Spotify requests
+only, since the cancelled operation still delivers its own telemetry
+report -- by design.
+
+Validation, all passing: `gofmt -l` clean, `go test ./...`,
+`go vet ./...`, `node --check`, `node --test` (119 pass, 0 fail: two new
+pure cases and four new wiring cases -- countdown lifecycle under the
+manual clock, countdown absence during routine pacing, cancel during a
+rate-limit wait ending the chain with nothing further dispatched, and
+cancel mid-write naming the partial target), `git diff --check`, and the
+purity grep. The second-429 message expectation was the single authorized
+assertion change.
