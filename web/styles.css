@@ -51,19 +51,27 @@ body {
    dot grid for detail. It stays crisp in the open, and only the glass
    panels blur it -- which is what makes the frost visible. Fixed and
    decorative, behind all content. */
+/* A near-black canvas crossed by two sparse color wisps. Each wisp has a
+   crisp leading edge and a soft tail: the crisp edge is what the glass
+   blurs into frost -- it sweeps through the center, behind the panels, so
+   the effect is visible where it counts while the rest stays black. */
 .aurora {
   position: fixed;
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  background-color: #05070c;
+  background-color: #03050a;
   background-image:
-    radial-gradient(rgba(255, 255, 255, 0.05) 1.1px, transparent 1.6px),
-    linear-gradient(112deg, transparent 14%, rgba(29, 185, 84, 0.26) 34%, transparent 52%),
-    linear-gradient(128deg, transparent 42%, rgba(20, 150, 150, 0.2) 60%, transparent 78%),
-    linear-gradient(96deg, transparent 55%, rgba(52, 84, 168, 0.22) 74%, transparent 92%),
-    linear-gradient(158deg, #0a0e16 0%, #05070c 60%, #080b14 100%);
-  background-size: 30px 30px, auto, auto, auto, auto;
+    linear-gradient(123deg,
+      transparent 46%,
+      rgba(29, 185, 84, 0.42) 47%,
+      rgba(29, 185, 84, 0.1) 53%,
+      transparent 63%),
+    linear-gradient(104deg,
+      transparent 60%,
+      rgba(36, 122, 150, 0.32) 61%,
+      rgba(36, 122, 150, 0.08) 67%,
+      transparent 77%);
 }
 
 .app {
@@ -112,13 +120,13 @@ h1 {
    pane; the tint stays low so what reads is mostly the blurred background,
    not white. */
 .panel {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.09);
+  border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: var(--radius);
   padding: 1.15rem 1.25rem;
   box-shadow:
-    0 22px 48px rgba(0, 0, 0, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    0 22px 48px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
   backdrop-filter: blur(28px) saturate(150%);
   -webkit-backdrop-filter: blur(28px) saturate(150%);
 }
