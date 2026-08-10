@@ -368,6 +368,8 @@ function createHarness(options) {
   const playlistStatusElement = new FakeElement(true);
   const trackStatusElement = new FakeElement(true);
   const trackProgressElement = new FakeElement(true);
+  const waitStatusElement = new FakeElement(true);
+  const cancelButton = new FakeElement(true);
   const playlistsElement = new FakeElement(true);
   const elements = {
     status: statusElement,
@@ -376,6 +378,8 @@ function createHarness(options) {
     "playlist-status": playlistStatusElement,
     "track-status": trackStatusElement,
     "track-progress": trackProgressElement,
+    "wait-status": waitStatusElement,
+    cancel: cancelButton,
     playlists: playlistsElement
   };
   const localStorage = options.localStorage || new FakeStorage();
@@ -423,7 +427,9 @@ function createHarness(options) {
     },
     async fetch(url, requestOptions) {
       if (requestOptions && requestOptions.signal && requestOptions.signal.aborted) {
-        throw new Error("the operation was cancelled");
+        const abortError = new Error("the operation was aborted");
+        abortError.name = "AbortError";
+        throw abortError;
       }
       requests.push({url: url, options: requestOptions, at: clock ? clock.now : null});
       if (url === "/api/config") {
@@ -487,6 +493,7 @@ function createHarness(options) {
   vm.runInContext(pureSource, context, {filename: "web/pure.js"});
   vm.runInContext(appSource, context, {filename: "web/app.js"});
   return {
+    cancelButton: cancelButton,
     connectButton: connectButton,
     historyPaths: historyPaths,
     localStorage: localStorage,
@@ -499,7 +506,8 @@ function createHarness(options) {
     statusElement: statusElement,
     telemetryReports: telemetryReports,
     trackProgressElement: trackProgressElement,
-    trackStatusElement: trackStatusElement
+    trackStatusElement: trackStatusElement,
+    waitStatusElement: waitStatusElement
   };
 }
 
@@ -2051,7 +2059,11 @@ test("a second 429 stops without another retry", async () => {
   await clock.drain();
 
   assert.equal(listingCalls, 2, "no third attempt is ever dispatched");
-  assert.match(harness.playlistStatusElement.textContent, /^Playlists could not be loaded/);
+  assert.match(
+    harness.playlistStatusElement.textContent,
+    /^Spotify asked for a pause\. Try again after \d{2}:\d{2}:\d{2}\. Reload afterward\.$/,
+    "a limited retry surfaces the pause with its absolute time"
+  );
   assert.deepEqual(
     harness.telemetryReports[0].events.map((event) => [event.attempt, event.status]),
     [[1, 429], [2, 429]]
@@ -2166,4 +2178,129 @@ test("disconnect aborts a pending paced wait and dispatches nothing after", asyn
   );
   assert.equal(backend.writes.length, 0, "no write batch follows a cancelled chain");
   assert.equal(harness.trackStatusElement.textContent, "");
+});
+
+test("a rate-limit wait shows a live countdown that ticks and clears", async () => {
+  const clock = manualClock();
+  let listingCalls = 0;
+  const harness = createHarness({
+    clock: clock,
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    playlistHandler: () => {
+      listingCalls += 1;
+      return listingCalls === 1
+        ? jsonResponse(429, {error: {status: 429, message: "slow down"}}, null, {"Retry-After": "30"})
+        : playlistPage([]);
+    }
+  });
+
+  await clock.run();
+  assert.equal(harness.waitStatusElement.hidden, false, "the wait is visible");
+  assert.match(harness.waitStatusElement.textContent,
+    /^Spotify asked us to slow down -- retrying in 30s\.$/);
+
+  await clock.advance(5000);
+  assert.equal(harness.waitStatusElement.hidden, false);
+  assert.match(harness.waitStatusElement.textContent, /retrying in 2[0-9]s\.$/,
+    "the countdown ticks down as time passes");
+
+  await clock.drain();
+  assert.equal(harness.waitStatusElement.hidden, true, "the countdown clears on resume");
+  assert.equal(harness.waitStatusElement.textContent, "");
+  assert.equal(listingCalls, 2);
+  assert.match(harness.playlistStatusElement.textContent, /^Select a playlist/);
+});
+
+test("routine pacing gaps never show the countdown", async () => {
+  const clock = manualClock();
+  const backend = makeWriteBackend();
+  const harness = createHarness(Object.assign({
+    clock: clock,
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    playlistHandler: () => playlistPage([{id: "steady", name: "Morning", items: {total: 2}, snapshot_id: "snap-1"}])
+  }, backendOptions(backend, steadyTrackHandler("steady", "snap-1", 50, ["spotify:track:a", "spotify:track:b"]))));
+
+  await clock.drain();
+  playlistButtons(harness)[1].click();
+  for (let step = 0; step < 15; step += 1) {
+    assert.equal(harness.waitStatusElement.hidden, true,
+      "a one-second pacing gap is silent");
+    await clock.advance(1000);
+  }
+  assert.match(harness.trackStatusElement.textContent, /^Created "Morning TrueShuffle" /);
+  assert.equal(harness.waitStatusElement.hidden, true);
+});
+
+test("cancel during a rate-limit wait ends the chain cleanly", async () => {
+  const clock = manualClock();
+  const backend = makeWriteBackend();
+  const harness = createHarness(Object.assign({
+    clock: clock,
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    playlistHandler: () => playlistPage([{id: "slow", name: "Morning", items: {total: 1}, snapshot_id: "snap-1"}])
+  }, backendOptions(backend, (url) => {
+    if (url === snapshotURL("slow")) {
+      return snapshotPage("snap-1");
+    }
+    return jsonResponse(429, {error: {status: 429, message: "limited"}}, null, {"Retry-After": "45"});
+  })));
+
+  await clock.drain();
+  playlistButtons(harness)[1].click();
+  assert.equal(harness.cancelButton.hidden, false, "cancel accompanies the chain");
+  for (let step = 0; step < 6 && harness.waitStatusElement.hidden; step += 1) {
+    await clock.advance(1000);
+  }
+  assert.equal(harness.waitStatusElement.hidden, false, "the retry wait is visible");
+  const spotifyRequests = () => harness.requests.filter(
+    (request) => request.url.startsWith("https://api.spotify.com/")
+  ).length;
+  const requestsBefore = spotifyRequests();
+
+  harness.cancelButton.click();
+  await clock.drain();
+
+  assert.equal(harness.trackStatusElement.textContent, "Cancelled.");
+  assert.equal(harness.waitStatusElement.hidden, true);
+  assert.equal(harness.cancelButton.hidden, true);
+  assert.equal(playlistButtons(harness)[1].disabled, false, "rows re-enable immediately");
+  assert.equal(spotifyRequests(), requestsBefore, "no Spotify request follows the cancel");
+  assert.equal(backend.writes.length, 0);
+  const shuffle = harness.telemetryReports.find((report) => report.kind === "playlist-shuffle");
+  assert.equal(shuffle.terminal_phase, "abandoned");
+});
+
+test("cancel during writing names the possibly partial target", async () => {
+  const backend = makeWriteBackend();
+  const options = backendOptions(backend);
+  const baseTrackHandler = options.trackHandler;
+  const firstAppend = deferred();
+  let held = null;
+  options.trackHandler = (url, requestOptions) => {
+    if (/\/items$/.test(url) && held === null) {
+      held = {url: url, requestOptions: requestOptions};
+      return firstAppend.promise.then(() => baseTrackHandler(url, requestOptions));
+    }
+    return baseTrackHandler(url, requestOptions);
+  };
+  const harness = createHarness(Object.assign({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    likedHandler: steadyLikedHandler(50, Array.from({length: 150}, (_, index) => "spotify:track:" + index))
+  }, options));
+
+  await settle();
+  playlistButtons(harness)[0].click();
+  await settleUntil(() => held !== null);
+
+  harness.cancelButton.click();
+  firstAppend.resolve();
+  await settle();
+
+  assert.equal(
+    harness.trackStatusElement.textContent,
+    "Cancelled. \"Liked Songs TrueShuffle\" may be incomplete; shuffle again to rewrite it."
+  );
+  assert.equal(backend.writes.length, 1, "the in-flight batch lands; no later batch is sent");
+  assert.equal(harness.cancelButton.hidden, true);
+  assert.equal(playlistButtons(harness)[0].disabled, false);
 });

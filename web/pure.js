@@ -28,6 +28,9 @@ var TrueShuffle = (function () {
       this.until = until;
     }
   }
+  // A deliberately abandoned chain -- disconnect or the Cancel button --
+  // distinct from failure so catch sites never render it as one.
+  class OperationCancelledError extends Error {}
   // A non-OK Web API response; carries the status, request path, and
   // Spotify's own error message so failure messages can name what was
   // refused, where, and in Spotify's words.
@@ -465,6 +468,11 @@ var TrueShuffle = (function () {
     return attempt === 1 && waitMs <= maxCooldownWaitMs;
   }
 
+  function waitCountdownMessage(remainingMs) {
+    const seconds = Math.max(1, Math.ceil(remainingMs / 1000));
+    return "Spotify asked us to slow down -- retrying in " + seconds + "s.";
+  }
+
   // Failure-preserving truncation: drop the oldest successes first, then the
   // oldest events outright. Window counts computed at dispatch are retained
   // as recorded, never recomputed from the truncated list.
@@ -569,6 +577,7 @@ var TrueShuffle = (function () {
   return {
     AuthorizationRevokedError: AuthorizationRevokedError,
     CooldownActiveError: CooldownActiveError,
+    OperationCancelledError: OperationCancelledError,
     PlaylistChangedError: PlaylistChangedError,
     TokenRejectedError: TokenRejectedError,
     addTracksURL: addTracksURL,
@@ -577,6 +586,7 @@ var TrueShuffle = (function () {
     maxCooldownWaitMs: maxCooldownWaitMs,
     shouldRetry429: shouldRetry429,
     validCooldownRecord: validCooldownRecord,
+    waitCountdownMessage: waitCountdownMessage,
     assembleTrackPages: assembleTrackPages,
     buildTokenRecord: buildTokenRecord,
     countTrackChanges: countTrackChanges,

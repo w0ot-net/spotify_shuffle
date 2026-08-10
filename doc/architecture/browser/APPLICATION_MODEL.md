@@ -78,7 +78,13 @@ The page-state vocabulary the lifecycle renders:
   tracks written batches), created or updated (naming the derived target
   with count, elapsed time, and the membership difference when a cached
   record was replaced), incomplete (naming the target with a rerun
-  offered), and failure.
+  offered), cancelled (naming the possibly partial target when writing
+  had begun), and failure;
+- the waiting state: whenever the request lane pauses beyond its routine
+  gap, a dedicated line counts down "Spotify asked us to slow down --
+  retrying in Ns." and disappears the moment the wait ends. Like the
+  progress bar it is visual-only, so screen readers hear outcomes, not
+  ticks.
 
 ## The one gesture
 
@@ -121,7 +127,10 @@ keep working (see the [authorization model](AUTHORIZATION_MODEL.md)).
 
 One operation runs at a time: every row is disabled until the active
 chain settles, which is what lets the single progress element serve the
-read and write phases in turn. The bar is determinate from the moment it
+read and write phases in turn. A Cancel button accompanies every active
+chain -- it aborts the same per-operation controller disconnect uses, so
+no second cancellation pathway exists; a cancelled chain renders
+"Cancelled." and re-enables the rows immediately. The bar is determinate from the moment it
 appears -- its maximum is the server-reported total (or the write's URI
 count) and its numbers stay out of the `aria-live` status text so screen
 readers are not spammed per step. The loaded list sits in module-scope

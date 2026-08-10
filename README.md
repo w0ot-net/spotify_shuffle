@@ -65,7 +65,9 @@ through one serial lane with at least a second between starts, a `429`'s
 `Retry-After` is honored with at most one retry, and a long cooldown is
 remembered across reloads. Large cold reads are therefore honest about
 time -- a multi-thousand-track source takes minutes on first shuffle, and
-seconds afterward thanks to the caches.
+seconds afterward thanks to the caches. Waits beyond the routine gap show
+a live countdown naming the reason, and an in-progress shuffle can always
+be cancelled.
 
 `TELEMETRY_DB_PATH` names the SQLite file (created mode 0600) holding
 sanitized first-party rate-limit telemetry: bounded request timing, roles,

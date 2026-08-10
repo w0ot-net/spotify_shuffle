@@ -45,6 +45,8 @@
   const playlistStatusElement = document.getElementById("playlist-status");
   const trackStatusElement = document.getElementById("track-status");
   const trackProgressElement = document.getElementById("track-progress");
+  const waitStatusElement = document.getElementById("wait-status");
+  const cancelButton = document.getElementById("cancel");
   const playlistsElement = document.getElementById("playlists");
   // The list's first row. A hyphen cannot appear in a Spotify id, so this
   // sentinel can never collide with a listed playlist.
@@ -277,6 +279,9 @@
     trackStatusElement.textContent = "";
     trackStatusElement.hidden = true;
     trackProgressElement.hidden = true;
+    waitStatusElement.textContent = "";
+    waitStatusElement.hidden = true;
+    cancelButton.hidden = true;
   }
 
   function randomHexId() {
@@ -624,14 +629,14 @@
   function abortableDelay(milliseconds, signal) {
     return new Promise(function (resolve, reject) {
       if (signal && signal.aborted) {
-        reject(new Error("the operation was cancelled"));
+        reject(new TrueShuffle.OperationCancelledError("the operation was cancelled"));
         return;
       }
       function onAbort() {
         if (signal) {
           signal.removeEventListener("abort", onAbort);
         }
-        reject(new Error("the operation was cancelled"));
+        reject(new TrueShuffle.OperationCancelledError("the operation was cancelled"));
       }
       window.setTimeout(function () {
         if (signal) {
@@ -643,6 +648,41 @@
         signal.addEventListener("abort", onAbort);
       }
     });
+  }
+
+  const waitNoticeThresholdMs = 2000;
+
+  // Waits at or beyond the notice threshold render a live countdown naming
+  // the reason; the routine pacing gap stays silent. Like the progress
+  // bar, the countdown is visual-only, so screen readers hear outcomes
+  // rather than ticks. The element disappears however the wait ends.
+  async function pacedWait(waitMs, signal) {
+    if (waitMs < waitNoticeThresholdMs) {
+      await abortableDelay(waitMs, signal);
+      return;
+    }
+    const until = Date.now() + waitMs;
+    try {
+      for (;;) {
+        const remaining = until - Date.now();
+        if (remaining <= 0) {
+          return;
+        }
+        waitStatusElement.textContent = TrueShuffle.waitCountdownMessage(remaining);
+        waitStatusElement.hidden = false;
+        await abortableDelay(Math.min(1000, remaining), signal);
+      }
+    } finally {
+      waitStatusElement.textContent = "";
+      waitStatusElement.hidden = true;
+    }
+  }
+
+  // A deliberate cancel arrives as the pure class from our own delay and
+  // lane checks, or as the platform's AbortError from an aborted fetch.
+  function wasCancelled(error) {
+    return error instanceof TrueShuffle.OperationCancelledError ||
+      (error !== null && typeof error === "object" && error.name === "AbortError");
   }
 
   // One serial paced lane for every Web API request. A 429 stores one
@@ -671,10 +711,10 @@
       }
       const waitMs = Math.max(0, startAt - now);
       if (waitMs > 0) {
-        await abortableDelay(waitMs, signal);
+        await pacedWait(waitMs, signal);
       }
       if (signal && signal.aborted) {
-        throw new Error("the operation was cancelled");
+        throw new TrueShuffle.OperationCancelledError("the operation was cancelled");
       }
       nextRequestStartAt = Date.now() + minStartGapMs;
       const event = beginRequestEvent(url, role, body, method);
@@ -748,9 +788,9 @@
             attempt += 1;
             continue;
           }
-          if (wait > TrueShuffle.maxCooldownWaitMs) {
-            throw cooldownError(deadline);
-          }
+          // A 429 that will not be retried is always a pause with a known
+          // end, never a generic failure.
+          throw cooldownError(deadline);
         }
         throw error;
       } finally {
@@ -971,6 +1011,10 @@
       if (!selectionActive(playlist)) {
         return null;
       }
+      if (wasCancelled(error)) {
+        renderTrackStatus("Cancelled.");
+        return null;
+      }
       if (error instanceof TrueShuffle.CooldownActiveError) {
         renderTrackStatus(error.message);
         return null;
@@ -1068,6 +1112,10 @@
       if (!selectionActive(source)) {
         return null;
       }
+      if (wasCancelled(error)) {
+        renderTrackStatus("Cancelled.");
+        return null;
+      }
       if (error instanceof TrueShuffle.CooldownActiveError) {
         renderTrackStatus(error.message);
         return null;
@@ -1151,6 +1199,12 @@
       if (!selectionActive(source)) {
         return false;
       }
+      if (wasCancelled(error)) {
+        renderTrackStatus(target === null
+          ? "Cancelled."
+          : "Cancelled. \"" + target.name + "\" may be incomplete; shuffle again to rewrite it.");
+        return false;
+      }
       if (error instanceof TrueShuffle.CooldownActiveError) {
         renderTrackStatus(target === null
           ? "The shuffled playlist could not be created. " + error.message
@@ -1171,12 +1225,18 @@
   async function runShuffle(token, source) {
     setActionButtonsDisabled(true);
     const operation = beginOperation(source.liked ? "liked-shuffle" : "playlist-shuffle");
+    // The escape hatch: visible for exactly as long as the chain runs.
+    cancelButton.disabled = false;
+    cancelButton.hidden = false;
     try {
       const loaded = source.liked
         ? await loadLikedSource(token, source)
         : await loadPlaylistSource(token, source);
       if (loaded === null) {
-        finishOperation(operation, selectedPlaylist === null ? "abandoned" : "load-failed");
+        finishOperation(operation,
+          operation.controller.signal.aborted || selectedPlaylist === null
+            ? "abandoned"
+            : "load-failed");
         return;
       }
       if (loaded.capacity !== undefined) {
@@ -1208,9 +1268,12 @@
       const written = await writeShuffled(token, source, loaded.uris, loaded.changes);
       finishOperation(operation, written
         ? "complete"
-        : (selectedPlaylist === null ? "abandoned" : "write-failed"));
+        : (operation.controller.signal.aborted || selectedPlaylist === null
+          ? "abandoned"
+          : "write-failed"));
     } finally {
       finishOperation(operation, "abandoned");
+      cancelButton.hidden = true;
       trackProgressElement.hidden = true;
       setActionButtonsDisabled(false);
     }
@@ -1277,6 +1340,12 @@
     try {
       playlists = await fetchPlaylists(token);
     } catch (error) {
+      // Cancellation here only means disconnect; the page is being
+      // cleared, so nothing is rendered over it.
+      if (wasCancelled(error)) {
+        finishOperation(operation, "abandoned");
+        return;
+      }
       // A failed listing is not proof of revocation, so the token is kept.
       renderPlaylistStatus(error instanceof TrueShuffle.CooldownActiveError
         ? error.message + " Reload afterward."
@@ -1422,6 +1491,13 @@
       clearPendingAuthorization();
       renderError("Spotify authorization could not be started.", true);
     });
+  });
+
+  cancelButton.addEventListener("click", function () {
+    cancelButton.disabled = true;
+    if (activeOperation !== null) {
+      activeOperation.controller.abort();
+    }
   });
 
   logoutButton.addEventListener("click", function () {

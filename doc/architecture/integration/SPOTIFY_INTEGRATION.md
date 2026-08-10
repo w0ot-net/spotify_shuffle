@@ -143,8 +143,9 @@ the page alone; no failure is interpreted as revocation (see the
 The exception is an explicit `429`: it records one cooldown deadline from
 `Retry-After` (30 seconds when the guidance is missing or invalid), and
 the request is replayed exactly once when the wait is at most 60 seconds.
-A longer deadline fails locally with the absolute retry time, persists in
-the browser across reloads, and blocks new Spotify calls -- recorded as
+Any `429` that will not be retried surfaces the pause with its absolute
+retry time -- never the generic failure text. A longer deadline persists
+in the browser across reloads and blocks new Spotify calls -- recorded as
 `cooldown-blocked` telemetry, never as an invented status -- until it
 expires. Only a `429` is ever replayed; network failures, other statuses,
 and malformed responses stay fail-fast so ambiguous writes are never

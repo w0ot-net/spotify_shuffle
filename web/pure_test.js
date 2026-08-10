@@ -778,3 +778,23 @@ test("CooldownActiveError carries its deadline", () => {
   assert.equal(error.until, now);
   assert.equal(error instanceof TrueShuffle.CooldownActiveError, true);
 });
+
+test("waitCountdownMessage rounds up and never reads zero", () => {
+  assert.equal(TrueShuffle.waitCountdownMessage(30000),
+    "Spotify asked us to slow down -- retrying in 30s.");
+  assert.equal(TrueShuffle.waitCountdownMessage(6001),
+    "Spotify asked us to slow down -- retrying in 7s.");
+  assert.equal(TrueShuffle.waitCountdownMessage(1000),
+    "Spotify asked us to slow down -- retrying in 1s.");
+  assert.equal(TrueShuffle.waitCountdownMessage(1),
+    "Spotify asked us to slow down -- retrying in 1s.");
+  assert.equal(TrueShuffle.waitCountdownMessage(0),
+    "Spotify asked us to slow down -- retrying in 1s.");
+});
+
+test("OperationCancelledError is a distinct error type", () => {
+  const error = new TrueShuffle.OperationCancelledError("cancelled");
+  assert.equal(error instanceof TrueShuffle.OperationCancelledError, true);
+  assert.equal(error instanceof TrueShuffle.CooldownActiveError, false);
+  assert.equal(error.message, "cancelled");
+});
