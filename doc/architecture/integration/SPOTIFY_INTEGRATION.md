@@ -154,6 +154,18 @@ and malformed responses stay fail-fast so ambiguous writes are never
 duplicated. Disconnect aborts the active chain's transport and waits, and
 issues nothing further from that chain.
 
+Liked-tracks `429`s step outside that policy, because the evidence in
+[rate limiting facts](RATE_LIMITING.md) shows `/v1/me/tracks` is
+penalized separately, its `Retry-After` is hidden from browser scripts by
+CORS, and its observed penalty window is roughly 30 minutes. A liked
+`429` is therefore never retried, stores the observed window in a
+dedicated lockout record (see the
+[data model](../browser/DATA_MODEL.md)), and renders the honest message:
+the endpoint is paused, the estimate is about N minutes, retrying sooner
+restarts the penalty, and playlist shuffles still work. During the
+lockout, liked requests are refused locally as `cooldown-blocked`;
+playlist and write requests are untouched by it.
+
 Every operation posts a sanitized report -- request roles, timing,
 statuses, waits, attempts, `Retry-After` state, Spotify's structured
 reason, and the page-local rolling 30-second request count -- to the

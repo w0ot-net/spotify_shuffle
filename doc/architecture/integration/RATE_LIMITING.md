@@ -77,21 +77,23 @@ at least per endpoint, not only per app-wide window -- consistent with
 the documented existence of unenumerated custom endpoint limits.
 **[deduction]**
 
-Those `429`s carried no valid numeric `Retry-After`. Premises: the app
-stores any valid `Retry-After` (a plain 1-6 digit seconds value,
-[`web/pure.js`](../../../web/pure.js) `normalizeRetryAfter`) as a single
-global cooldown deadline that blocks every Spotify call until it expires
-([`web/app.js`](../../../web/app.js) `storeCooldown` /
-`activeCooldownUntil`); a 24-hour value fits that parser; playlist calls
-were not blocked. Had Spotify advertised the real penalty, the app would
-have paused everything -- playlists kept working only because the header
-was absent or unparseable and the app fell back to its 30-second
-cooldown. **[deduction]**
+Those `429`s carried no `Retry-After` visible to the browser: telemetry
+recorded `retry_after_state=absent` on every liked `429` of 2026-08-09
+and 2026-08-10. Yet an out-of-band probe on 2026-08-10 at 20:23 UTC
+(curl, same account and registration, during the active penalty)
+received `429` with `Retry-After: 1808` -- roughly 30 minutes.
+**[observed]** Spotify therefore does advertise this penalty's wait but
+does not expose the header to browser scripts via CORS
+(`Access-Control-Expose-Headers`), so no in-browser policy can read the
+real deadline; the app's recorded "absent" means invisible, not
+missing. **[deduction]** Playlist calls were never blocked by liked
+`429`s because the invisible header left the app on its 30-second
+fallback instead of a stored multi-hour global cooldown. **[deduction]**
 
-Production telemetry captured the incident's per-request evidence
-(roles, statuses, `Retry-After` state, page offsets, rolling window
-counts) and has not yet been analyzed; analysis would replace the
-deduction above with recorded values. **[observed]**
+Recovery is drip-fed, not binary: in the same probe window, one liked
+request succeeded (200, 2026-08-10 20:21 UTC) and the immediately
+following page request was `429` again. A nominally released endpoint
+can therefore still refuse a multi-page cold read. **[observed]**
 
 ## Why Liked Songs is the exposed surface
 
@@ -118,9 +120,12 @@ These are properties of this repository, not of Spotify:
 - On `429` the app replays once when the advertised wait is at most 60
   seconds, and otherwise surfaces the pause; without a valid
   `Retry-After` the cooldown is 30 seconds
-  ([`web/pure.js`](../../../web/pure.js), cooldown policy). During a
-  multi-hour server-side penalty this understates the real wait and
-  permits periodic doomed retries. **[code]**
+  ([`web/pure.js`](../../../web/pure.js), cooldown policy). Liked-tracks
+  `429`s are the exception since 2026-08-10: never replayed, and stored
+  as a dedicated local lockout pinned to the observed ~30-minute window
+  (`likedCooldownMs`) that blocks only Liked Songs and tells the user
+  the estimate, because the real wait is CORS-invisible per the
+  observation above. **[code]**
 
 Combined with the account-scoped quota facts above: one user repeatedly
 cold-reading a large library can exhaust the development-mode quota for
@@ -135,8 +140,9 @@ its telemetry has yet established them either:
 
 - Numeric request limits for either quota mode.
 - Which endpoints carry custom limits, their quotas, or their windows.
-- Penalty durations, escalation rules, or when `Retry-After` is present
-  versus absent.
+- Penalty durations and escalation rules beyond the one observed
+  `/v1/me/tracks` value (1,808 seconds), and whether other endpoints'
+  `429`s also carry CORS-hidden `Retry-After` values.
 - Whether penalties attach to app+endpoint, account+endpoint, or also
   per-user dimensions beyond the app scoping documented above.
 
@@ -146,5 +152,7 @@ community.spotify.com refuses non-browser retrieval, so their content
 could not be independently verified and is deliberately not cited as
 fact here.
 
-Analyzing the recorded 2026-08-09 telemetry is the one available step
-that converts unknowns above into facts for this app's actual traffic.
+The 2026-08-10 telemetry review and out-of-band probe converted the
+`Retry-After` question into the CORS-visibility facts above; continued
+telemetry review remains the available step for the unknowns that are
+left.

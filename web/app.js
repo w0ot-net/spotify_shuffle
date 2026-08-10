@@ -18,6 +18,7 @@
   const minStartGapMs = 250;
   const backgroundStorageKey = "trueshuffle.background.v1";
   const cooldownStorageKey = "trueshuffle.spotify-cooldown.v1";
+  const likedCooldownStorageKey = "trueshuffle.liked-cooldown.v1";
   const trackCacheDatabaseName = "trueshuffle";
   const trackCacheStoreName = "playlists";
   // Keep the legacy namespace so the product rename preserves browser sessions.
@@ -78,10 +79,8 @@
   let pageSessionId = null;
   let requestStartHistory = [];
   let activeOperation = null;
-  // The serial lane's next allowed dispatch time, and the in-memory
-  // cooldown deadline that backs up an unwritable localStorage.
+  // The serial lane's next allowed dispatch time.
   let nextRequestStartAt = 0;
-  let memoryCooldownUntil = 0;
 
   function applyBackground(value) {
     const choice = TrueShuffle.normalizeBackgroundChoice(value);
@@ -633,51 +632,67 @@
     return event;
   }
 
-  function storeCooldown(until) {
-    memoryCooldownUntil = until;
-    try {
-      window.localStorage.setItem(cooldownStorageKey, JSON.stringify({until: until}));
-    } catch (_) {
-      // The page-memory deadline still applies.
-    }
+  // One persisted deadline record behind a page-memory backup for an
+  // unwritable store. Invalid and expired records are removed on read; the
+  // deadlines are application state, not authorization state, so
+  // disconnect never clears them. Two instances exist because Spotify
+  // scopes its penalties per endpoint: the general lane cooldown, and the
+  // liked-tracks lockout that must never block playlist work.
+  function cooldownStore(storageKey) {
+    let memoryUntil = 0;
+    return {
+      store(until) {
+        memoryUntil = until;
+        try {
+          window.localStorage.setItem(storageKey, JSON.stringify({until: until}));
+        } catch (_) {
+          // The page-memory deadline still applies.
+        }
+      },
+      activeUntil() {
+        let until = memoryUntil;
+        try {
+          const raw = window.localStorage.getItem(storageKey);
+          if (raw !== null) {
+            const record = JSON.parse(raw);
+            if (TrueShuffle.validCooldownRecord(record)) {
+              until = Math.max(until, record.until);
+            } else {
+              window.localStorage.removeItem(storageKey);
+            }
+          }
+        } catch (_) {
+          // An unreadable store leaves the page-memory deadline.
+        }
+        if (until <= Date.now()) {
+          if (until !== 0) {
+            memoryUntil = 0;
+            try {
+              window.localStorage.removeItem(storageKey);
+            } catch (_) {
+              // Expired either way.
+            }
+          }
+          return null;
+        }
+        return until;
+      }
+    };
   }
 
-  // The effective cooldown deadline, or null when none applies. Invalid and
-  // expired stored records are removed; the cooldown is application state,
-  // not authorization state, so disconnect never clears it.
-  function activeCooldownUntil() {
-    let until = memoryCooldownUntil;
-    try {
-      const raw = window.localStorage.getItem(cooldownStorageKey);
-      if (raw !== null) {
-        const record = JSON.parse(raw);
-        if (TrueShuffle.validCooldownRecord(record)) {
-          until = Math.max(until, record.until);
-        } else {
-          window.localStorage.removeItem(cooldownStorageKey);
-        }
-      }
-    } catch (_) {
-      // An unreadable store leaves the page-memory deadline.
-    }
-    if (until <= Date.now()) {
-      if (until !== 0) {
-        memoryCooldownUntil = 0;
-        try {
-          window.localStorage.removeItem(cooldownStorageKey);
-        } catch (_) {
-          // Expired either way.
-        }
-      }
-      return null;
-    }
-    return until;
-  }
+  const spotifyCooldown = cooldownStore(cooldownStorageKey);
+  const likedCooldown = cooldownStore(likedCooldownStorageKey);
 
   function cooldownError(until) {
     const time = new Date(until).toTimeString().slice(0, 8);
     return new TrueShuffle.CooldownActiveError(
       "Spotify asked for a pause. Try again after " + time + ".", until
+    );
+  }
+
+  function likedLockoutError(until) {
+    return new TrueShuffle.CooldownActiveError(
+      TrueShuffle.likedLockoutMessage(until - Date.now()), until
     );
   }
 
@@ -748,11 +763,24 @@
   async function requestSpotify(token, url, role, body, method) {
     const operation = activeOperation;
     const signal = operation !== null ? operation.controller.signal : null;
+    const likedRole = TrueShuffle.telemetryEndpointClass(role) === "liked-tracks";
     let attempt = 1;
     for (;;) {
       const now = Date.now();
       let startAt = Math.max(nextRequestStartAt, now);
-      const cooldownUntil = activeCooldownUntil();
+      // The liked lockout always blocks locally: its window is far beyond
+      // the inline-wait ceiling and a request during it restarts the
+      // penalty.
+      const likedUntil = likedRole ? likedCooldown.activeUntil() : null;
+      if (likedUntil !== null) {
+        const blocked = beginRequestEvent(url, role, body, method);
+        if (blocked !== null) {
+          blocked.attempt = attempt;
+          blocked.result = "cooldown-blocked";
+        }
+        throw likedLockoutError(likedUntil);
+      }
+      const cooldownUntil = spotifyCooldown.activeUntil();
       if (cooldownUntil !== null) {
         if (cooldownUntil - now > TrueShuffle.maxCooldownWaitMs) {
           const blocked = beginRequestEvent(url, role, body, method);
@@ -836,8 +864,17 @@
         return payload;
       } catch (error) {
         if (error instanceof TrueShuffle.SpotifyRequestError && error.status === 429) {
+          if (likedRole) {
+            // Spotify hides this endpoint's Retry-After from browsers and
+            // scopes the penalty to the endpoint: pin the observed window,
+            // never retry (a retry restarts it), and leave playlist work
+            // outside the lockout.
+            const likedDeadline = Date.now() + TrueShuffle.likedCooldownMs;
+            likedCooldown.store(likedDeadline);
+            throw likedLockoutError(likedDeadline);
+          }
           const deadline = TrueShuffle.cooldownDeadline(retryAfter, Date.now());
-          storeCooldown(deadline);
+          spotifyCooldown.store(deadline);
           const wait = deadline - Date.now();
           if (TrueShuffle.shouldRetry429(attempt, wait) && !(signal && signal.aborted)) {
             attempt += 1;

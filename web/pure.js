@@ -479,6 +479,23 @@ var TrueShuffle = (function () {
     return "Spotify asked us to slow down -- retrying in " + seconds + "s.";
   }
 
+  // The Liked Songs library endpoint has its own Spotify-side limit with
+  // roughly half-hour penalties. Spotify sends Retry-After on those 429s
+  // but does not expose the header to browser scripts (CORS), so the page
+  // can never read the real wait; this pins the window observed
+  // out-of-band (1,808 seconds on 2026-08-10) instead of the generic
+  // 30-second fallback, which only restarts the penalty.
+  const likedCooldownMs = 30 * 60 * 1000;
+
+  function likedLockoutMessage(remainingMs) {
+    const minutes = Math.max(1, Math.ceil(remainingMs / 60000));
+    return "Spotify has paused Liked Songs reads for this app. Its library " +
+      "limit is separate from playlists, and browsers cannot see the exact " +
+      "wait: try again in about " + minutes +
+      (minutes === 1 ? " minute" : " minutes") +
+      "; retrying sooner restarts the penalty. Playlist shuffles still work.";
+  }
+
   // Failure-preserving truncation: drop the oldest successes first, then the
   // oldest events outright. Window counts computed at dispatch are retained
   // as recorded, never recomputed from the truncated list.
@@ -606,6 +623,8 @@ var TrueShuffle = (function () {
     encodeTelemetryReport: encodeTelemetryReport,
     findPlaylistByName: findPlaylistByName,
     hasScope: hasScope,
+    likedCooldownMs: likedCooldownMs,
+    likedLockoutMessage: likedLockoutMessage,
     likedPageURL: likedPageURL,
     likedRecordMatches: likedRecordMatches,
     likedRowLabel: likedRowLabel,

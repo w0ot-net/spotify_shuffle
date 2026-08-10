@@ -73,7 +73,12 @@ remembered across reloads. Large cold reads are therefore honest about
 time -- a multi-thousand-track source takes minutes on first shuffle, and
 seconds afterward thanks to the caches. Waits beyond the routine gap show
 a live countdown naming the reason, and an in-progress shuffle can always
-be cancelled.
+be cancelled. Liked Songs gets special honesty: Spotify rate-limits that
+library endpoint separately and hides its retry guidance from browsers,
+so a `429` there locks only Liked Songs locally for the observed
+half-hour window and the page says exactly that -- including that
+retrying sooner restarts the penalty and that playlist shuffles still
+work.
 
 `TELEMETRY_DB_PATH` names the SQLite file (created mode 0600) holding
 sanitized first-party rate-limit telemetry: bounded request timing, roles,

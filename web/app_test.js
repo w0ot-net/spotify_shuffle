@@ -1918,6 +1918,55 @@ test("a liked fingerprint hit reports its disposition and single read request", 
     "a hit costs exactly the fingerprint page");
 });
 
+test("a liked-tracks 429 locks only Liked Songs and says so honestly", async () => {
+  const backend = makeWriteBackend();
+  const localStorage = new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())});
+  let likedCalls = 0;
+  const harness = createHarness(Object.assign({
+    localStorage: localStorage,
+    likedHandler: () => {
+      likedCalls += 1;
+      return jsonResponse(429,
+        {error: {status: 429, message: "quota exceeded", reason: "QUOTA_EXCEEDED"}});
+    }
+  }, backendOptions(backend)));
+
+  await settle();
+  playlistButtons(harness)[0].click();
+  await settle();
+
+  assert.equal(likedCalls, 1, "a liked 429 is never retried");
+  assert.match(harness.trackStatusElement.textContent, /paused Liked Songs reads/);
+  assert.match(harness.trackStatusElement.textContent, /about 30 minutes/);
+  assert.match(harness.trackStatusElement.textContent, /Playlist shuffles still work\./);
+  assert.ok(localStorage.getItem("trueshuffle.liked-cooldown.v1") !== null,
+    "the liked lockout is persisted");
+  assert.equal(localStorage.getItem("trueshuffle.spotify-cooldown.v1"), null,
+    "a liked penalty never cools down playlist work");
+});
+
+test("a liked click during the lockout sends nothing and names the remaining wait", async () => {
+  const localStorage = new FakeStorage({
+    [tokenStorageKey]: JSON.stringify(likedToken()),
+    "trueshuffle.liked-cooldown.v1": JSON.stringify({until: Date.now() + (10 * 60 * 1000)})
+  });
+  const harness = createHarness({localStorage: localStorage});
+
+  await settle();
+  playlistButtons(harness)[0].click();
+  await settle();
+
+  assert.equal(
+    harness.requests.filter((request) =>
+      request.url.startsWith("https://api.spotify.com/v1/me/tracks")).length,
+    0,
+    "no liked request is dispatched during the lockout");
+  assert.match(harness.trackStatusElement.textContent, /about 10 minutes/);
+  const shuffle = harness.telemetryReports.find((report) => report.kind === "liked-shuffle");
+  assert.equal(shuffle.events[0].result, "cooldown-blocked");
+  assert.equal(shuffle.events[0].status, null, "no Spotify status is invented");
+});
+
 test("telemetry transport failure never disturbs the operation", async () => {
   const backend = makeWriteBackend();
   const harness = createHarness(Object.assign({
