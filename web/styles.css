@@ -153,6 +153,20 @@ h1 {
   color: var(--fg);
 }
 
+/* Contract fine print: quiet, muted, and short enough to be read. The
+   connect note's visibility follows the Connect button by stylesheet, so
+   the note is exactly as visible as the action it explains. */
+.fineprint {
+  margin: 0.75rem 0 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
+#connect[hidden] ~ .connect-note {
+  display: none;
+}
+
 /* Glass panels: a light, see-through tint over a strong blur, so the sharp
    background shows through as frost. The lit top edge and border define the
    pane; the tint stays low so what reads is mostly the blurred background,

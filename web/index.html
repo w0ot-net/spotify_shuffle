@@ -32,6 +32,10 @@
       <div class="actions">
         <button id="connect" type="button" hidden>Connect Spotify</button>
         <button id="logout" type="button" hidden>Disconnect this browser</button>
+        <p class="fineprint connect-note">Connecting asks Spotify for permission
+          to read your playlists and create your shuffled copies. Your Spotify
+          login and tokens stay in this browser; the TrueShuffle server never
+          sees your account.</p>
       </div>
     </section>
     <section class="panel workspace">
@@ -41,6 +45,11 @@
       <p id="wait-status" hidden></p>
       <button id="cancel" type="button" hidden>Cancel</button>
       <ul id="playlists" hidden></ul>
+      <p class="fineprint">Each shuffle writes to a playlist&rsquo;s own
+        &ldquo;<em>playlist name</em> TrueShuffle&rdquo; copy &mdash; created
+        the first time, rewritten every time after. Originals are never
+        modified. Changes made in Spotify after this page loads appear after
+        a reload.</p>
     </section>
     <noscript class="noscript">JavaScript is required to connect Spotify.</noscript>
   </main>

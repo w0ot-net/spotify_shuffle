@@ -72,6 +72,8 @@ func TestAppPage(t *testing.T) {
 				`id="playlists"`,
 				`id="track-status"`,
 				`id="track-progress"`,
+				`sees your account.`,
+				`Originals are never`,
 				`id="wait-status"`,
 				`id="cancel"`,
 			} {

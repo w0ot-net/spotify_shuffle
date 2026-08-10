@@ -11,9 +11,13 @@ produces which page state belongs to the
 ## Two scripts, one global
 
 `web/index.html` is a fixed document -- a visual-background selector, a
-status line, connect and disconnect buttons, a playlist status line, a track
-status line, a progress element, and the source list -- that loads two classic
-scripts with `defer`, in order:
+status line, connect and disconnect buttons, a playlist status line, a
+track status line, a progress element, and the source list, plus two
+static fine-print lines: a connect note (permissions and the
+tokens-stay-in-this-browser fact, visible exactly when Connect is, by a
+stylesheet rule) and a workspace note (the derived-copy contract, the
+never-modified guarantee, and page-load freshness) -- that loads two
+classic scripts with `defer`, in order:
 
 1. `web/pure.js` defines a single `TrueShuffle` global containing the
    browser-independent value logic and error types: token-record building and
