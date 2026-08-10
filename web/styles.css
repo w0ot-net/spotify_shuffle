@@ -167,6 +167,17 @@ h1 {
   display: none;
 }
 
+/* The one-tap route into a standing result: a quiet accent link, no
+   button chrome competing with the real actions. */
+.quiet-link {
+  display: inline-block;
+  margin: 0.35rem 0 0;
+  color: var(--accent);
+  font-size: 0.82rem;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
 /* Glass panels: a light, see-through tint over a strong blur, so the sharp
    background shows through as frost. The lit top edge and border define the
    pane; the tint stays low so what reads is mostly the blurred background,

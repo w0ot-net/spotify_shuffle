@@ -376,6 +376,7 @@ function createHarness(options) {
   const playlistStatusElement = new FakeElement(true);
   const trackStatusElement = new FakeElement(true);
   const trackProgressElement = new FakeElement(true);
+  const openTargetLink = new FakeElement(true);
   const waitStatusElement = new FakeElement(true);
   const cancelButton = new FakeElement(true);
   const playlistsElement = new FakeElement(true);
@@ -389,6 +390,7 @@ function createHarness(options) {
     "playlist-status": playlistStatusElement,
     "track-status": trackStatusElement,
     "track-progress": trackProgressElement,
+    "open-target": openTargetLink,
     "wait-status": waitStatusElement,
     cancel: cancelButton,
     playlists: playlistsElement
@@ -517,6 +519,7 @@ function createHarness(options) {
     requests: requests,
     sessionStorage: sessionStorage,
     statusElement: statusElement,
+    openTargetLink: openTargetLink,
     telemetryReports: telemetryReports,
     trackProgressElement: trackProgressElement,
     trackStatusElement: trackStatusElement,
@@ -2394,4 +2397,65 @@ test("cancel during writing names the possibly partial target", async () => {
   assert.equal(backend.writes.length, 1, "the in-flight batch lands; no later batch is sent");
   assert.equal(harness.cancelButton.hidden, true);
   assert.equal(playlistButtons(harness)[0].disabled, false);
+});
+
+test("the result link follows the standing result through its whole lifecycle", async () => {
+  const uris = ["spotify:track:a", "spotify:track:b"];
+  const backend = makeWriteBackend();
+  let writeGate = null;
+  let failWrites = false;
+  const options = Object.assign({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    likedHandler: steadyLikedHandler(50, uris)
+  }, backendOptions(backend));
+  const writeThrough = options.trackHandler;
+  options.trackHandler = (url, requestOptions) => {
+    if (failWrites && requestOptions && requestOptions.method) {
+      return jsonResponse(500, {error: {status: 500, message: "Server error"}});
+    }
+    if (writeGate !== null) {
+      const gate = writeGate;
+      return gate.promise.then(() => writeThrough(url, requestOptions));
+    }
+    return writeThrough(url, requestOptions);
+  };
+  const harness = createHarness(options);
+
+  await settle();
+  assert.equal(harness.openTargetLink.hidden, true, "no link before any result");
+
+  playlistButtons(harness)[0].click();
+  await settle();
+  assert.equal(harness.openTargetLink.hidden, false, "a created result offers the link");
+  assert.equal(harness.openTargetLink.href, "https://open.spotify.com/playlist/target-1");
+  assert.match(harness.trackStatusElement.textContent, /^Created /);
+
+  writeGate = deferred();
+  playlistButtons(harness)[0].click();
+  await settle();
+  assert.equal(harness.openTargetLink.hidden, true,
+    "the link never outlives its result into a running chain");
+
+  const gate = writeGate;
+  writeGate = null;
+  gate.resolve();
+  await settle();
+  assert.equal(harness.openTargetLink.hidden, false);
+  assert.equal(harness.openTargetLink.href, "https://open.spotify.com/playlist/target-1",
+    "an updated result points at the same derived target");
+  assert.match(harness.trackStatusElement.textContent, /^Updated /);
+
+  failWrites = true;
+  playlistButtons(harness)[0].click();
+  await settle();
+  assert.match(harness.trackStatusElement.textContent, /may be incomplete/);
+  assert.equal(harness.openTargetLink.hidden, true, "a failure leaves no link standing");
+
+  failWrites = false;
+  playlistButtons(harness)[0].click();
+  await settle();
+  assert.equal(harness.openTargetLink.hidden, false);
+
+  harness.logoutButton.click();
+  assert.equal(harness.openTargetLink.hidden, true, "disconnect retires the link");
 });

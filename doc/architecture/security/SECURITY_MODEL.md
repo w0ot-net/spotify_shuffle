@@ -51,6 +51,12 @@ that wants them needs a separate origin without Spotify data.
 - **Third-party text never becomes markup.** Playlist names are
   attacker-influenced strings. List entries are built with `createElement`
   and `textContent`; `innerHTML` is never assigned.
+- **The one outbound link is constructed, labeled statically, and carries
+  nothing.** The result link's `href` is the fixed
+  `https://open.spotify.com/playlist/` origin plus the URI-encoded target
+  id; its label never changes, it opens with `rel="noopener"`, and no
+  token or account data enters the URL. CSP is unaffected:
+  `connect-src` governs fetches, not link navigations.
 - **No inline script or style, ever.** The page wires all behavior from the
   two served scripts and all presentation from the one served stylesheet,
   keeping `script-src 'self'` and `style-src 'self'` honest; a test asserts

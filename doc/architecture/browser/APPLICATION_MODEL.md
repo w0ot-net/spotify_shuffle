@@ -86,7 +86,9 @@ The page-state vocabulary the lifecycle renders:
   the read's elapsed time, no-tracks, cap exceeded, writing (the bar
   tracks written batches), created or updated (naming the derived target
   with count, elapsed time, and the membership difference when a cached
-  record was replaced), incomplete (naming the target with a rerun
+  record was replaced, accompanied by a one-tap open-in-Spotify link that
+  lives exactly as long as the standing result), incomplete (naming the
+  target with a rerun
   offered), cancelled (naming the possibly partial target when writing
   had begun), and failure;
 - the waiting state: whenever the request lane pauses beyond its routine

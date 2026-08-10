@@ -51,6 +51,7 @@
   const playlistStatusElement = document.getElementById("playlist-status");
   const trackStatusElement = document.getElementById("track-status");
   const trackProgressElement = document.getElementById("track-progress");
+  const openTargetLink = document.getElementById("open-target");
   const waitStatusElement = document.getElementById("wait-status");
   const cancelButton = document.getElementById("cancel");
   const playlistsElement = document.getElementById("playlists");
@@ -330,6 +331,7 @@
     waitStatusElement.textContent = "";
     waitStatusElement.hidden = true;
     cancelButton.hidden = true;
+    openTargetLink.hidden = true;
   }
 
   function randomHexId() {
@@ -1242,6 +1244,10 @@
       renderTrackStatus(TrueShuffle.shuffleResultMessage(
         !overwriting, target.name, shuffled.length, Date.now() - writeStart
       ) + TrueShuffle.trackChangesSuffix(changes));
+      // One tap into the standing result. Fixed origin, encoded id, no
+      // token: the same constructed-URL rule every API request follows.
+      openTargetLink.href = "https://open.spotify.com/playlist/" + encodeURIComponent(target.id);
+      openTargetLink.hidden = false;
       return true;
     } catch (error) {
       if (!selectionActive(source)) {
@@ -1272,6 +1278,8 @@
   // target, under a single button gate and one progress element.
   async function runShuffle(token, source) {
     setActionButtonsDisabled(true);
+    // A prior result's link must not outlive the result it points at.
+    openTargetLink.hidden = true;
     const operation = beginOperation(source.liked ? "liked-shuffle" : "playlist-shuffle");
     // The escape hatch: visible for exactly as long as the chain runs.
     cancelButton.disabled = false;
