@@ -30,6 +30,12 @@
   // these values.
   const telemetryPolicy = {policy: "pool-6-v0", minStartGapMs: 0, retryCeiling: 0};
   const telemetryEndpoint = "/api/telemetry";
+  // The delivery queue lives in its own database so disconnect can keep
+  // deleting the private track cache without touching sanitized pending
+  // operational evidence.
+  const telemetryQueueDatabaseName = "trueshuffle-telemetry";
+  const telemetryQueueStoreName = "queue";
+  const telemetryQueueKey = "envelope";
 
   const statusElement = document.getElementById("status");
   const connectButton = document.getElementById("connect");
@@ -316,8 +322,9 @@
     }
   }
 
-  // Submission is one unawaited same-origin request; telemetry transport
-  // can never affect the operation that produced the report.
+  // Delivery is launched unawaited when the operation settles; queue,
+  // storage, and transport failure are all contained inside the delivery
+  // owner and can never affect the operation that produced the report.
   function finishOperation(operation, terminalPhase) {
     if (operation === null || activeOperation !== operation) {
       return;
@@ -330,17 +337,180 @@
       window.performance.now() - operation.startedMonotonic
     ));
     try {
-      window.fetch(telemetryEndpoint, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: TrueShuffle.encodeTelemetryReport(report),
-        keepalive: true,
-        credentials: "same-origin"
-      }).catch(function (_) {
+      deliverTelemetryReport(report).catch(function (_) {
         // Lost telemetry is lost; the operation already rendered.
       });
     } catch (_) {
+      // An unavailable delivery path is equivalent to lost transport.
+    }
+  }
+
+  function submitTelemetryOnce(body) {
+    try {
+      window.fetch(telemetryEndpoint, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: body,
+        keepalive: true,
+        credentials: "same-origin"
+      }).catch(function (_) {
+        // Lost telemetry is lost.
+      });
+    } catch (_) {
       // An unavailable fetch is equivalent to lost transport.
+    }
+  }
+
+  function openTelemetryQueue() {
+    return new Promise(function (resolve, reject) {
+      const request = window.indexedDB.open(telemetryQueueDatabaseName, 1);
+      request.onupgradeneeded = function () {
+        request.result.createObjectStore(telemetryQueueStoreName);
+      };
+      request.onsuccess = function () {
+        resolve(request.result);
+      };
+      request.onerror = function () {
+        reject(request.error || new Error("telemetry queue could not be opened"));
+      };
+    });
+  }
+
+  // One read/write transaction owns each envelope update, which is what
+  // serializes overlapping tabs without a lock abstraction. The mutator is
+  // synchronous so the whole read-modify-write commits atomically; a
+  // corrupt stored envelope is discarded rather than interpreted.
+  function updateTelemetryQueue(database, mutate) {
+    return new Promise(function (resolve, reject) {
+      const transaction = database.transaction(telemetryQueueStoreName, "readwrite");
+      const store = transaction.objectStore(telemetryQueueStoreName);
+      const request = store.get(telemetryQueueKey);
+      let outcome = null;
+      let corrupt = false;
+      request.onsuccess = function () {
+        let stored = request.result;
+        if (stored === undefined) {
+          stored = {version: 1, dropped: 0, entries: []};
+        } else if (!TrueShuffle.validTelemetryQueueEnvelope(stored)) {
+          // Discard corruption: reset the record and report this pass as
+          // unavailable rather than interpreting the damage.
+          store.put({version: 1, dropped: 0, entries: []}, telemetryQueueKey);
+          corrupt = true;
+          return;
+        }
+        outcome = mutate(stored);
+        if (outcome.write) {
+          store.put(outcome.write, telemetryQueueKey);
+        }
+      };
+      request.onerror = function () {
+        reject(request.error);
+      };
+      transaction.oncomplete = function () {
+        if (corrupt) {
+          reject(new Error("the telemetry queue record was corrupt"));
+          return;
+        }
+        resolve(outcome === null ? null : outcome.value);
+      };
+      transaction.onerror = function () {
+        reject(transaction.error);
+      };
+      transaction.onabort = function () {
+        reject(transaction.error);
+      };
+    });
+  }
+
+  // Drain has triggers, not a retry loop: page initialization and each
+  // successful enqueue. Only a 204 removes a report; the first transport
+  // or storage failure stops the pass, and the next trigger retries.
+  let telemetryDrainActive = false;
+
+  async function drainTelemetryQueue() {
+    if (telemetryDrainActive) {
+      return;
+    }
+    telemetryDrainActive = true;
+    try {
+      for (;;) {
+        const database = await openTelemetryQueue();
+        let oldest = null;
+        try {
+          oldest = await updateTelemetryQueue(database, function (envelope) {
+            return {value: envelope.entries.length > 0 ? envelope.entries[0] : null};
+          });
+        } finally {
+          database.close();
+        }
+        if (oldest === null) {
+          return;
+        }
+        const response = await window.fetch(telemetryEndpoint, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: oldest.body,
+          keepalive: true,
+          credentials: "same-origin"
+        });
+        if (response.status !== 204) {
+          return;
+        }
+        const removal = await openTelemetryQueue();
+        try {
+          await updateTelemetryQueue(removal, function (envelope) {
+            return {
+              write: Object.assign({}, envelope, {
+                entries: envelope.entries.filter(function (entry) {
+                  return entry.id !== oldest.id;
+                })
+              }),
+              value: null
+            };
+          });
+        } finally {
+          removal.close();
+        }
+      }
+    } catch (_) {
+      // The queue keeps the report; a later trigger retries.
+    } finally {
+      telemetryDrainActive = false;
+    }
+  }
+
+  // Enqueue before transport so an acknowledged report is the only kind
+  // that ever leaves the queue; without usable queue storage the report
+  // degrades to the one-shot path and says so.
+  async function deliverTelemetryReport(report) {
+    const failed = report.events.some(function (event) {
+      return event.result !== "ok";
+    });
+    try {
+      const database = await openTelemetryQueue();
+      try {
+        await updateTelemetryQueue(database, function (envelope) {
+          report.delivery_storage = "indexeddb";
+          report.reports_dropped_before = Math.min(1000, envelope.dropped);
+          const entry = {
+            id: report.report_id,
+            failed: failed,
+            body: TrueShuffle.encodeTelemetryReport(report)
+          };
+          return {
+            write: TrueShuffle.queueTelemetryReport(
+              envelope, entry, TrueShuffle.telemetryQueueLimit
+            ),
+            value: null
+          };
+        });
+      } finally {
+        database.close();
+      }
+      await drainTelemetryQueue();
+    } catch (_) {
+      report.delivery_storage = "queue-unavailable";
+      submitTelemetryOnce(TrueShuffle.encodeTelemetryReport(report));
     }
   }
 
@@ -1037,6 +1207,14 @@
   }
 
   async function initialize() {
+    // A prior page may have left acknowledged-pending reports behind.
+    try {
+      drainTelemetryQueue().catch(function (_) {
+        // The queue keeps its reports; a later trigger retries.
+      });
+    } catch (_) {
+      // An unusable queue never blocks initialization.
+    }
     if (!window.crypto || !window.crypto.subtle) {
       renderError("This browser does not support secure Spotify authorization.", false);
       return;

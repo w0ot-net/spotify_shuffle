@@ -420,7 +420,7 @@ function createHarness(options) {
           throw new Error("telemetry intake unavailable");
         }
         telemetryReports.push(JSON.parse(requestOptions.body));
-        return jsonResponse(204, null);
+        return jsonResponse(options.telemetryStatus || 204, null);
       }
       if (url === tokenEndpoint && options.tokenHandler) {
         return options.tokenHandler(requestOptions);
@@ -1795,4 +1795,143 @@ test("an oversized library reports truncated capacity-rejected evidence", async 
   assert.ok(shuffle.events.length <= 256);
   assert.ok(shuffle.peak_window_count >= 261,
     "the peak rolling count sees the whole burst");
+});
+
+test("an unacknowledged report stays queued and a reload delivers it", async () => {
+  const indexedDB = new FakeIndexedDB();
+  const backend = makeWriteBackend();
+  const rejected = createHarness(Object.assign({
+    indexedDB: indexedDB,
+    telemetryStatus: 503,
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    likedHandler: steadyLikedHandler(50, ["spotify:track:a"])
+  }, backendOptions(backend)));
+
+  await settle();
+  playlistButtons(rejected)[0].click();
+  await settle();
+
+  assert.match(rejected.trackStatusElement.textContent, /^Created /,
+    "a rejected telemetry delivery never disturbs the operation");
+  const stored = indexedDB.record("trueshuffle-telemetry", "queue", "envelope");
+  assert.equal(stored.entries.length, 2,
+    "the listing and shuffle reports remain queued until acknowledged");
+
+  const reloaded = createHarness({
+    indexedDB: indexedDB,
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    likedHandler: steadyLikedHandler(50, ["spotify:track:a"])
+  });
+  await settle();
+
+  const drained = indexedDB.record("trueshuffle-telemetry", "queue", "envelope");
+  assert.equal(drained.entries.length, 0, "initialization drains the queue oldest first");
+  assert.equal(reloaded.telemetryReports.length >= 2, true);
+  assert.equal(reloaded.telemetryReports[0].kind, "playlist-list",
+    "the oldest pending report is delivered first");
+  assert.equal(reloaded.telemetryReports[0].delivery_storage, "indexeddb");
+});
+
+test("a transport failure leaves reports queued without any fallback send", async () => {
+  const indexedDB = new FakeIndexedDB();
+  const backend = makeWriteBackend();
+  const harness = createHarness(Object.assign({
+    indexedDB: indexedDB,
+    telemetryFailure: true,
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    likedHandler: steadyLikedHandler(50, ["spotify:track:a"])
+  }, backendOptions(backend)));
+
+  await settle();
+  playlistButtons(harness)[0].click();
+  await settle();
+
+  assert.match(harness.trackStatusElement.textContent, /^Created /);
+  const stored = indexedDB.record("trueshuffle-telemetry", "queue", "envelope");
+  assert.equal(stored.entries.length, 2, "reports persist across a dead intake");
+});
+
+test("a seeded drop count reaches newly delivered reports", async () => {
+  const indexedDB = new FakeIndexedDB({
+    seed: {
+      "trueshuffle-telemetry": {
+        queue: {
+          envelope: {
+            version: 1,
+            dropped: 3,
+            entries: [{id: "seeded", failed: true, body: "{\"seeded\":true}"}]
+          }
+        }
+      }
+    }
+  });
+  const backend = makeWriteBackend();
+  const harness = createHarness(Object.assign({
+    indexedDB: indexedDB,
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    likedHandler: steadyLikedHandler(50, ["spotify:track:a"])
+  }, backendOptions(backend)));
+
+  await settle();
+  playlistButtons(harness)[0].click();
+  await settle();
+
+  assert.deepEqual(harness.telemetryReports[0], {seeded: true},
+    "the seeded pending report is delivered before new ones");
+  const listing = harness.telemetryReports[1];
+  assert.equal(listing.delivery_storage, "indexeddb");
+  assert.equal(listing.reports_dropped_before, 3,
+    "the persisted drop counter reaches the report");
+  const stored = indexedDB.record("trueshuffle-telemetry", "queue", "envelope");
+  assert.equal(stored.entries.length, 0);
+  assert.equal(stored.dropped, 3, "acknowledgement does not reset the counter");
+});
+
+test("a corrupt queue record degrades that report to one-shot and resets", async () => {
+  const indexedDB = new FakeIndexedDB();
+  const backend = makeWriteBackend();
+  const harness = createHarness(Object.assign({
+    indexedDB: indexedDB,
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    likedHandler: steadyLikedHandler(50, ["spotify:track:a"])
+  }, backendOptions(backend)));
+
+  await settle();
+  indexedDB.databases.get("trueshuffle-telemetry").get("queue").set("envelope", {bogus: true});
+  playlistButtons(harness)[0].click();
+  await settle();
+
+  const shuffle = harness.telemetryReports.find((report) => report.kind === "liked-shuffle");
+  assert.equal(shuffle.delivery_storage, "queue-unavailable",
+    "corruption is reported honestly, never interpreted");
+  const stored = indexedDB.record("trueshuffle-telemetry", "queue", "envelope");
+  assert.equal(TrueShuffle_validEnvelope(stored), true,
+    "the corrupt record is discarded so the queue heals");
+});
+
+// The pure validator, reachable from the test realm for the corruption case.
+function TrueShuffle_validEnvelope(value) {
+  const context = vm.createContext({});
+  vm.runInContext(pureSource, context, {filename: "web/pure.js"});
+  return context.TrueShuffle.validTelemetryQueueEnvelope(
+    JSON.parse(JSON.stringify(value))
+  );
+}
+
+test("without usable IndexedDB delivery degrades to one-shot and says so", async () => {
+  const backend = makeWriteBackend();
+  const harness = createHarness(Object.assign({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    likedHandler: steadyLikedHandler(50, ["spotify:track:a"])
+  }, backendOptions(backend)));
+
+  await settle();
+  playlistButtons(harness)[0].click();
+  await settle();
+
+  assert.equal(harness.telemetryReports.length, 2);
+  for (const report of harness.telemetryReports) {
+    assert.equal(report.delivery_storage, "queue-unavailable");
+  }
+  assert.match(harness.trackStatusElement.textContent, /^Created /);
 });

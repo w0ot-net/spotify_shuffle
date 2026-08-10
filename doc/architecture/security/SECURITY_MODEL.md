@@ -55,7 +55,9 @@ them needs a separate origin without Spotify data.
   identity, track URIs, raw URLs, or response text. Raw values exist only
   inside the browser normalizer; the server validates every field strictly,
   rejects cross-origin provenance when browser headers reveal it, and
-  exposes no read route. Leak absence is asserted by test.
+  exposes no read route. Pending reports await acknowledgement in a small
+  IndexedDB queue that is sanitized before it is stored, which is why it
+  may survive disconnect. Leak absence is asserted by test.
 
 The [testing model](../testing/TESTING_MODEL.md) requires that removing a
 security guard makes a test fail; the cursor guard is the standing example.

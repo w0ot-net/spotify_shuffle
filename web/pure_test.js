@@ -699,3 +699,51 @@ test("encodeTelemetryReport bounds event count and encoded length", () => {
   assert.equal(large.events[large.events.length - 1].result, "http-error",
     "the failure survives length-driven truncation");
 });
+
+test("validTelemetryQueueEnvelope requires the exact envelope shape", () => {
+  const valid = {version: 1, dropped: 0, entries: [{id: "a", failed: false, body: "{}"}]};
+  assert.equal(TrueShuffle.validTelemetryQueueEnvelope(valid), true);
+  assert.equal(TrueShuffle.validTelemetryQueueEnvelope({version: 1, dropped: 0, entries: []}), true);
+  assert.equal(TrueShuffle.validTelemetryQueueEnvelope(null), false);
+  assert.equal(TrueShuffle.validTelemetryQueueEnvelope({}), false);
+  assert.equal(TrueShuffle.validTelemetryQueueEnvelope(
+    Object.assign({}, valid, {version: 2})), false);
+  assert.equal(TrueShuffle.validTelemetryQueueEnvelope(
+    Object.assign({}, valid, {dropped: -1})), false);
+  assert.equal(TrueShuffle.validTelemetryQueueEnvelope(
+    Object.assign({}, valid, {entries: [{id: "", failed: false, body: "{}"}]})), false);
+  assert.equal(TrueShuffle.validTelemetryQueueEnvelope(
+    Object.assign({}, valid, {entries: [{id: "a", failed: 0, body: "{}"}]})), false);
+  assert.equal(TrueShuffle.validTelemetryQueueEnvelope(
+    Object.assign({}, valid, {entries: [{id: "a", failed: false, body: ""}]})), false);
+});
+
+test("queueTelemetryReport bounds four entries preferring failures", () => {
+  const empty = {version: 1, dropped: 0, entries: []};
+  const entry = (id, failed) => ({id: id, failed: failed, body: "{}"});
+
+  let envelope = empty;
+  for (const [id, failed] of [["a", false], ["b", true], ["c", false], ["d", true]]) {
+    envelope = TrueShuffle.queueTelemetryReport(envelope, entry(id, failed), 4);
+  }
+  assert.equal(envelope.entries.length, 4);
+  assert.equal(envelope.dropped, 0);
+
+  const overflowed = TrueShuffle.queueTelemetryReport(envelope, entry("e", false), 4);
+  assert.deepEqual(plain(overflowed.entries).map((item) => item.id), ["b", "c", "d", "e"],
+    "the oldest success-only entry goes first");
+  assert.equal(overflowed.dropped, 0, "displacing a success is not an unavoidable drop");
+
+  let failures = empty;
+  for (const id of ["a", "b", "c", "d"]) {
+    failures = TrueShuffle.queueTelemetryReport(failures, entry(id, true), 4);
+  }
+  const forced = TrueShuffle.queueTelemetryReport(failures, entry("e", true), 4);
+  assert.deepEqual(plain(forced.entries).map((item) => item.id), ["b", "c", "d", "e"],
+    "when only failures remain the oldest is dropped");
+  assert.equal(forced.dropped, 1, "an unavoidable failure drop is counted");
+
+  const replaced = TrueShuffle.queueTelemetryReport(envelope, entry("b", true), 4);
+  assert.equal(replaced.entries.filter((item) => item.id === "b").length, 1,
+    "re-enqueueing a report id replaces rather than duplicates");
+});

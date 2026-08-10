@@ -62,7 +62,10 @@ TELEMETRY_DB_PATH=/tmp/trueshuffle-telemetry.sqlite go run .
 `TELEMETRY_DB_PATH` names the SQLite file (created mode 0600) holding
 sanitized first-party rate-limit telemetry: bounded request timing, roles,
 statuses, and counts per operation, with no token, account, playlist, or
-track identity. There is no HTTP read access to it.
+track identity. There is no HTTP read access to it. The browser keeps at
+most four pending reports in a small local queue until the server
+acknowledges them, so brief outages lose no evidence; the queue is equally
+sanitized.
 
 Open <http://127.0.0.1:8080/> in a browser to view the home page.
 

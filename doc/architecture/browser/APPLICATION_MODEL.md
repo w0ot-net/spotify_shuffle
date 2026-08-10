@@ -32,11 +32,19 @@ page is tested for position, not mere presence, of the two tags.
 
 Each listing and each shuffle chain also assembles one sanitized telemetry
 report -- request roles, timing, statuses, workload numbers, and the
-page-lifetime rolling 30-second request count -- submitted once, unawaited,
-when the operation settles. Transport failure is swallowed; telemetry can
-never change what an operation does or renders. The bounded vocabulary
-lives in `web/pure.js`; the [security model](../security/SECURITY_MODEL.md)
-owns what may never appear in a report.
+page-lifetime rolling 30-second request count -- delivered unawaited when
+the operation settles. Delivery is acknowledged, not fire-and-forget: the
+encoded report enters a four-entry queue (see the
+[data model](DATA_MODEL.md)) before transport, a drain pass triggered by
+page initialization and each enqueue submits oldest-first, and only the
+server's `204` removes an entry -- reloads and overlapping tabs retry
+safely against the server's idempotent report ids. Without usable queue
+storage the report degrades to a one-shot send that says so. Queue,
+storage, and transport failure are all contained in the delivery owner;
+telemetry can never change what an operation does or renders. The bounded
+vocabulary lives in `web/pure.js`; the
+[security model](../security/SECURITY_MODEL.md) owns what may never appear
+in a report.
 
 ## The purity rule
 

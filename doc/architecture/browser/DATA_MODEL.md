@@ -63,9 +63,23 @@ the previous record intact: only a verified read ever replaces a record,
 so the cache can hold stale truth but never corruption. Spotify read
 failures keep failing loudly per the integration posture.
 
+## The telemetry delivery queue is a second, separate database
+
+`trueshuffle-telemetry` (version 1) holds one versioned envelope record --
+at most four encoded, already-sanitized telemetry reports awaiting the
+server's acknowledgement, plus a bounded counter of unavoidable drops.
+Overflow evicts the oldest success-only report first and counts a drop
+only when every entry carries a Spotify failure. One read/write
+transaction owns each envelope update, which serializes overlapping tabs;
+a corrupt record is discarded and reported as unavailable storage, never
+interpreted. The queue holds no Spotify, account, playlist, or track
+identity, so it deliberately survives disconnect -- pending operational
+evidence is not private account data.
+
 ## Disconnect deletes the database
 
 Cached URIs are private account data. Disconnecting deletes the
 `trueshuffle` database along with the token record and page state (see the
 [authorization model](AUTHORIZATION_MODEL.md)); no cached playlist data
-survives a disconnect.
+survives a disconnect. The telemetry queue database, which holds no
+account data, is not deleted.

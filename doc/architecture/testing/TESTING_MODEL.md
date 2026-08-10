@@ -29,7 +29,10 @@ Three layers, no external dependency in any of them:
    dead store answers `503` while every other route stays healthy. The
    harness additionally captures submitted telemetry reports so wiring
    cases can assert evidence content and the absence of any Spotify
-   identity.
+   identity, and its fake IndexedDB hosts the delivery queue so cases can
+   prove persistence precedes transport, only a `204` removes a report,
+   reloads drain oldest-first, and corruption or missing storage degrades
+   to an honest one-shot send.
 
 ```sh
 go test ./...

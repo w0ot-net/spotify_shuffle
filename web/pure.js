@@ -473,6 +473,50 @@ var TrueShuffle = (function () {
     return encoded;
   }
 
+  // The four-entry delivery queue: sanitized encoded reports awaiting the
+  // server's acknowledgement. One versioned envelope record holds them.
+  const telemetryQueueLimit = 4;
+
+  function validTelemetryQueueEnvelope(value) {
+    return value !== null &&
+      typeof value === "object" &&
+      value.version === 1 &&
+      Number.isInteger(value.dropped) && value.dropped >= 0 &&
+      Array.isArray(value.entries) &&
+      value.entries.every(function (entry) {
+        return entry !== null && typeof entry === "object" &&
+          typeof entry.id === "string" && entry.id !== "" &&
+          typeof entry.failed === "boolean" &&
+          typeof entry.body === "string" && entry.body !== "";
+      });
+  }
+
+  // Enqueue with the failure-preserving bound: overflow deletes the oldest
+  // success-only entry first; when only failure-bearing entries remain, the
+  // oldest is dropped and the bounded drop counter records it.
+  function queueTelemetryReport(envelope, entry, limit) {
+    const entries = envelope.entries.filter(function (existing) {
+      return existing.id !== entry.id;
+    });
+    entries.push(entry);
+    let dropped = envelope.dropped;
+    while (entries.length > limit) {
+      let dropIndex = -1;
+      for (let index = 0; index < entries.length; index += 1) {
+        if (!entries[index].failed) {
+          dropIndex = index;
+          break;
+        }
+      }
+      if (dropIndex === -1) {
+        dropIndex = 0;
+        dropped = Math.min(1000, dropped + 1);
+      }
+      entries.splice(dropIndex, 1);
+    }
+    return {version: 1, dropped: dropped, entries: entries};
+  }
+
   function assembleTrackPages(pages, total) {
     // Sorting by offset makes assembly independent of completion order.
     const ordered = pages.slice().sort((a, b) => a.offset - b.offset);
@@ -532,12 +576,15 @@ var TrueShuffle = (function () {
     shuffleResultMessage: shuffleResultMessage,
     SpotifyRequestError: SpotifyRequestError,
     telemetryEndpointClass: telemetryEndpointClass,
+    telemetryQueueLimit: telemetryQueueLimit,
+    queueTelemetryReport: queueTelemetryReport,
     trackChangesSuffix: trackChangesSuffix,
     trackPageURL: trackPageURL,
     truncateTelemetryEvents: truncateTelemetryEvents,
     uriBatches: uriBatches,
     validLikedCacheRecord: validLikedCacheRecord,
     validPlaylistCursor: validPlaylistCursor,
+    validTelemetryQueueEnvelope: validTelemetryQueueEnvelope,
     validTokenRecord: validTokenRecord,
     validTrackCacheRecord: validTrackCacheRecord
   };
