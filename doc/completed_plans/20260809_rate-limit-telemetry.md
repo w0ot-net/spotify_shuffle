@@ -279,8 +279,11 @@ truncation, and the doubly bounded report encoder in `web/pure.js`;
 role-tagged instrumentation inside `requestSpotify` with operation
 reports opened by the listing and each shuffle chain and submitted once,
 unawaited, in `web/app.js` (policy `pool-6-v0`, delivery `one-shot`);
-`telemetry.go` with `modernc.org/sqlite` pinned at v1.31.1 (Go 1.22,
-`CGO_ENABLED=0` verified), strict exact `POST /api/telemetry` intake
+`telemetry.go` with `modernc.org/sqlite` pinned at v1.56.0 by `go.sum`
+(the second `go mod tidy` re-resolved to latest after the first dropped an
+earlier v1.31.1 pin; v1.56.0 builds under both Go 1.22 locally and the
+host toolchain with `CGO_ENABLED=0` verified), strict exact
+`POST /api/telemetry` intake
 (unknown-field rejection, 64 KiB body cap, provenance checks, 60/minute
 gate, idempotent duplicate `204`), schema version 1 with cascade events,
 two-tier retention inside the insert transaction, 4096-byte pages capped
@@ -307,3 +310,20 @@ twelve new browser tests; every prior assertion unmodified),
 `git diff --check`, and the inverted purity grep (which caught and forced
 the rename of a `history`-named parameter -- the greppable rule working
 as designed).
+
+Deployment, completed 2026-08-09 under the chain-execution direction
+through the private runbook, in the plan's load-bearing order:
+
+- `TELEMETRY_DB_PATH=/opt/trueshuffle/data/telemetry.sqlite` was appended
+  to the protected environment first (backup retained until success, value
+  file mode 0600 preserved, running release unaffected).
+- Release `7abc90eed67fddb82871f70084fc3b4eec2a6171`; embedded revision
+  matches, `vcs.modified=false`, SHA-256 `fab684b022ce049cf2c7...`. Host
+  suites passed (Go, vet, both browser files via direct `node`).
+- Previous release `349a207...` retained; `current` switched atomically;
+  service active as `trueshuffle` with zero restarts; loopback and public
+  health all 200; zero warning journal entries.
+- Startup created the database itself: mode 0600, owned
+  `trueshuffle:trueshuffle`, `PRAGMA user_version` 1, zero operations --
+  verified read-only. The private runbook gained the database section,
+  validation commands, and evidence queries.
