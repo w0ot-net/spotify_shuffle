@@ -11,7 +11,7 @@ import (
 )
 
 const defaultListenAddr = "127.0.0.1:8080"
-const contentSecurityPolicy = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self' https://accounts.spotify.com https://api.spotify.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'"
+const contentSecurityPolicy = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self' https://accounts.spotify.com https://api.spotify.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'"
 
 //go:embed web/index.html
 var indexHTML []byte
@@ -24,6 +24,9 @@ var appJS []byte
 
 //go:embed web/styles.css
 var stylesCSS []byte
+
+//go:embed web/background.svg
+var backgroundSVG []byte
 
 func main() {
 	addr := os.Getenv("LISTEN_ADDR")
@@ -73,6 +76,7 @@ func newHandler(spotifyClientID string, telemetry *telemetryStore) (http.Handler
 	mux.HandleFunc("GET /pure.js", serveAsset(pureJS, "text/javascript; charset=utf-8"))
 	mux.HandleFunc("GET /app.js", serveAsset(appJS, "text/javascript; charset=utf-8"))
 	mux.HandleFunc("GET /styles.css", serveAsset(stylesCSS, "text/css; charset=utf-8"))
+	mux.HandleFunc("GET /background.svg", serveAsset(backgroundSVG, "image/svg+xml; charset=utf-8"))
 	mux.HandleFunc("GET /api/config", func(w http.ResponseWriter, _ *http.Request) {
 		setBrowserSecurityHeaders(w)
 		w.Header().Set("Cache-Control", "no-store")

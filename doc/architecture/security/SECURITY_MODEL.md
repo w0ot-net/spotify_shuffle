@@ -25,6 +25,7 @@ The page and both scripts are served with:
 default-src 'none'            nothing loads unless allowed below
 script-src 'self'             only first-party scripts; no inline, no eval
 style-src 'self'              only the first-party stylesheet; no inline style
+img-src 'self'                only the first-party background image; no data:
 connect-src 'self'            /api/config
   https://accounts.spotify.com    token exchange and refresh (the authorize
                                   step is a navigation, not a fetch)
@@ -33,9 +34,10 @@ base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'
 ```
 
 `default-src 'none'` means the allowlist is exhaustive: `style-src 'self'`
-permits the one first-party stylesheet and no inline style, and there is
-still no permitted image, font, or frame source. Adding any such asset
-requires its own directive, deliberately. Third-party scripts and styles --
+permits the one first-party stylesheet and no inline style, `img-src 'self'`
+permits the one first-party background image and no `data:` or third-party
+image, and there is still no permitted font or frame source. Adding any such
+asset requires its own directive, deliberately. Third-party scripts and styles --
 analytics, advertising, anything -- must never load on this origin; a page
 that wants them needs a separate origin without Spotify data.
 

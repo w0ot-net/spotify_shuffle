@@ -123,8 +123,10 @@ origin, `https://accounts.spotify.com` for tokens, and
 other third-party code must use a separate origin and must not receive
 Spotify data.
 
-The page is themed by one first-party stylesheet served at `/styles.css`: a
-dark interface with translucent panels and a single green accent.
+The page is themed by one first-party stylesheet served at `/styles.css`,
+over a first-party background image at `/background.svg`: a dark interface
+with translucent glass panels, sweeping violet-and-blue ribbons behind
+them, and a single green accent.
 
 "Disconnect this browser" deletes the local token record and the cached track
 lists. It does not revoke the authorization grant in Spotify; reconnecting or

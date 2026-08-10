@@ -146,6 +146,24 @@ func TestStylesheet(t *testing.T) {
 	}
 }
 
+func TestBackgroundSVG(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/background.svg", nil)
+	recorder := httptest.NewRecorder()
+
+	testHandler(t).ServeHTTP(recorder, req)
+
+	if got, want := recorder.Code, http.StatusOK; got != want {
+		t.Fatalf("status code = %d, want %d", got, want)
+	}
+	if got, want := recorder.Header().Get("Content-Type"), "image/svg+xml; charset=utf-8"; got != want {
+		t.Errorf("Content-Type = %q, want %q", got, want)
+	}
+	assertBrowserSecurityHeaders(t, recorder.Header())
+	if !strings.Contains(recorder.Body.String(), "<svg") {
+		t.Error("body is not an SVG document")
+	}
+}
+
 func TestPublicConfig(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/config", nil)
 	recorder := httptest.NewRecorder()
@@ -175,7 +193,7 @@ func TestPublicConfig(t *testing.T) {
 }
 
 func TestAppRoutesAreExact(t *testing.T) {
-	for _, path := range []string{"/callback/", "/pure.js/", "/app.js/", "/styles.css/", "/api/config/"} {
+	for _, path := range []string{"/callback/", "/pure.js/", "/app.js/", "/styles.css/", "/background.svg/", "/api/config/"} {
 		t.Run(path, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, path, nil)
 			recorder := httptest.NewRecorder()
@@ -221,6 +239,14 @@ func TestContentSecurityPolicyStyleSource(t *testing.T) {
 	// inline style or third-party origin is permitted.
 	if !strings.Contains(contentSecurityPolicy, "style-src 'self';") {
 		t.Errorf("Content-Security-Policy = %q, want it to contain %q", contentSecurityPolicy, "style-src 'self';")
+	}
+}
+
+func TestContentSecurityPolicyImageSource(t *testing.T) {
+	// The first-party background image loads only with an explicit img-src
+	// restricted to this origin; no third-party or data: image is permitted.
+	if !strings.Contains(contentSecurityPolicy, "img-src 'self';") {
+		t.Errorf("Content-Security-Policy = %q, want it to contain %q", contentSecurityPolicy, "img-src 'self';")
 	}
 }
 
