@@ -1,5 +1,7 @@
 # Plan: Visible Waits and Cancellable Chains
 
+*Distilled: 2026-08-09*
+
 ## Summary
 
 A rate-limited page must never sit gray and silent. When the request lane
