@@ -230,3 +230,45 @@ reviewed plan authorizes that behavior change.
   one-operation invariants remain intact, and durable telemetry identifies the
   active request policy and every wait, attempt, cancellation, local block, and
   remaining 429 without a server-schema change.
+
+## Execution Notes
+
+Executed 2026-08-09. Implementation commit `c515063`.
+
+Implemented as planned: the six-worker pool and its dispatcher are gone --
+pages read sequentially in offset order through one lane in
+`requestSpotify` owning a module-scope next-start time (1,000 ms minimum
+gap across listing, reads, writes, and verification); a 429 stores one
+cooldown deadline (`trueshuffle.spotify-cooldown.v1`, page-memory backup
+on storage failure) computed by the pure `cooldownDeadline` (advertised
+delta or the 30-second fallback) and retries exactly once via the loop's
+own cooldown wait when `shouldRetry429` allows; a longer deadline throws
+the pure `CooldownActiveError`, rendered with the absolute retry time in
+every surface, and later calls fail locally as `cooldown-blocked`
+telemetry with no invented status; each operation owns an
+`AbortController` aborted by disconnect before page state clears, checked
+before every wait and dispatch; an oversized Liked Songs library now stops
+at page zero (`{capacity}` sentinel from `loadLikedSource`); the telemetry
+policy became `serial-1000ms-v1`/1000/1.
+
+Bounded deviations:
+
+- `telemetry.go` gained `cooldown-blocked` in its result-enum validator --
+  the SQLite schema is untouched, so the plan's no-schema-change boundary
+  holds, but the server-side enum list had to admit the value the plan
+  itself specifies. Covered by a Go validation case.
+- The purity grep rejected a comment containing "documented
+  rolling-window"; reworded -- the greppable rule is substring-based by
+  design.
+
+Validation, all passing: `gofmt -l` clean, `go test ./...`,
+`go vet ./...`, `node --check`, `node --test` (113 pass, 0 fail: four new
+pure cases and six new deterministic-clock wiring cases -- paced ordered
+dispatch across operation boundaries, one short-429 retry honoring the
+advertised delay, the 30-second fallback, no second retry, no retry of
+network/5xx failures, long-cooldown local blocking persisting across
+reload until expiry, and disconnect aborting a pending paced wait with
+nothing dispatched after), `git diff --check`, and the purity grep. The
+replaced pool test and the rewritten oversized-library test were the two
+behavior-change updates the plan authorized; every other prior assertion
+is unmodified.
