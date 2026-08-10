@@ -6,7 +6,8 @@ This page owns the production layout, release identity, and the boundary
 between repository documentation and private operations. Return to the
 [architecture index](../README.md).
 
-Production state lives in one root-owned tree:
+Production state lives in one tree, root-owned except for the single
+service-writable corner:
 
 ```text
 /opt/trueshuffle/
@@ -15,8 +16,10 @@ Production state lives in one root-owned tree:
 |   `-- <full-git-revision>/
 |       `-- trueshuffle        the deployed static binary
 |-- current -> releases/<full-git-revision>/
-`-- config/
-    `-- environment            root-only (0600) service environment
+|-- config/
+|   `-- environment            root-only (0600) service environment
+`-- data/                      trueshuffle:trueshuffle, mode 0700 -- the
+                               service account's only writable path
 ```
 
 ## Release identity
@@ -31,9 +34,13 @@ directory and atomically repoints `current`; rollback is repointing it back.
 ## Service
 
 `/etc/systemd/system/trueshuffle.service` is the only TrueShuffle-specific
-object outside the tree. It runs `current/trueshuffle` under
-`DynamicUser=yes` with the environment file above, listening on
-`127.0.0.1:5107`. Apache terminates TLS for `https://shuffle.p.a-9.co` and
+object outside the tree. It runs `current/trueshuffle` as the stable
+non-login `trueshuffle` system account with the environment file above,
+listening on `127.0.0.1:5107`. The unit states explicitly the sandbox its
+former dynamic user implied -- strict system protection, read-only home,
+private tmp, IPC removal, no new privileges -- with `data/` as the sole
+write allowance, so code, releases, and configuration stay root-controlled
+while the account owns nothing but its state directory. Apache terminates TLS for `https://shuffle.p.a-9.co` and
 reverse-proxies to that loopback listener; Apache, Let's Encrypt, and
 journald assets belong to those services, not to TrueShuffle. `/healthz`
 answers on both the loopback and the public origin.
