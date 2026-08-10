@@ -1,6 +1,6 @@
 # System architecture
 
-*Revised: 2026-08-09*
+*Revised: 2026-08-10*
 
 This tree owns the stable responsibilities, boundaries, and invariants of
 TrueShuffle as it exists at head. TrueShuffle is a browser-centric Spotify
@@ -50,8 +50,11 @@ its public configuration.
    that confine Spotify data.
 6. [Spotify integration](integration/SPOTIFY_INTEGRATION.md) for the
    endpoints, paging bounds, and scopes.
-7. [Testing model](testing/TESTING_MODEL.md) for the layered test strategy.
-8. [Deployment model](deployment/DEPLOYMENT_MODEL.md) for the production
+7. [Rate limiting facts](integration/RATE_LIMITING.md) for what is
+   actually known -- with sources -- about Spotify's limits and this
+   app's exposure to them.
+8. [Testing model](testing/TESTING_MODEL.md) for the layered test strategy.
+9. [Deployment model](deployment/DEPLOYMENT_MODEL.md) for the production
    layout and release identity.
 
 The broader [documentation map](../README.md) routes every kind of

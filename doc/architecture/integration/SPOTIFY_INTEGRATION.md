@@ -1,6 +1,6 @@
 # Spotify integration
 
-*Revised: 2026-08-09*
+*Revised: 2026-08-10*
 
 This page owns the contract with Spotify: the endpoints in use, the paging
 bounds, and the scopes position. Return to the
@@ -129,7 +129,9 @@ above the 10,000-item playlist capacity fails there, since its write is
 impossible. The pace is deliberately conservative and unconfigurable --
 a 10,000-track cold shuffle takes minutes -- because Spotify's limits are
 unpublished and the recorded telemetry, not guesswork, is the basis for
-any future change to these values.
+any future change to these values. What is actually confirmed about
+those limits, with sources, is collected in
+[Rate limiting facts](RATE_LIMITING.md).
 
 ## Failure posture
 
