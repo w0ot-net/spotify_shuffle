@@ -169,3 +169,35 @@ expected.
   verified ownership model without exposing private operations context.
 - SQLite telemetry and rate-limit work remain independently executable follow-up
   plans rather than hidden additions to this migration.
+
+## Execution Notes
+
+Executed 2026-08-09 on explicit user direction (the chain execution
+request), through the private runbook. Documentation commit `c13ba02`.
+
+Implemented as planned: the non-login system account `trueshuffle` (no
+pinned ids), `/opt/trueshuffle/data` at mode `0700` owned by it, and the
+unit switched from `DynamicUser=yes` to the named identity with the
+formerly implied sandbox stated explicitly -- `ProtectSystem=strict`,
+`ProtectHome=read-only`, `PrivateTmp=yes`, `RemoveIPC=yes`,
+`NoNewPrivileges=yes` -- and `ReadWritePaths=/opt/trueshuffle/data` as the
+sole write allowance.
+
+One bounded deviation: the plan's conflict check found a `trueshuffle`
+passwd entry that was the running service's own dynamic-user allocation
+(nss-systemd, UID in the dynamic range), not a conflicting static account.
+The switch therefore stopped the service first, confirmed the dynamic
+entry was released, created the static account, and started under the new
+unit -- all inside the restart window the plan already accepted. The saved
+prior unit served as the rollback and was removed after validation.
+
+Validation, all passing on the host: service enabled and active with zero
+restarts; the main process runs as `trueshuffle`; effective properties
+show the named identity, `DynamicUser=no`, and every sandbox directive;
+the account writes `data/` but cannot write `repo/` or `releases/` and
+cannot read `config/environment`; release target and binary checksum,
+environment checksum and mode `0600`, loopback-only listener, and loopback
+plus public `/` and `/healthz` all unchanged and healthy; zero
+warning-or-higher journal entries. The deployment model page and the
+private runbook now describe the verified state; no access details entered
+the repository.
