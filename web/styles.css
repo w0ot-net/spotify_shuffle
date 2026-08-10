@@ -42,8 +42,14 @@ body {
   font-family: var(--sans);
   color: var(--fg);
   line-height: 1.5;
-  background: var(--ground);
   overflow-x: hidden;
+  /* A calm, abstract field: a soft central green glow gives the glass
+     something to refract, over a quiet diagonal base. */
+  background:
+    radial-gradient(72vmax 56vmax at 50% 20%, rgba(29, 185, 84, 0.1), transparent 66%),
+    radial-gradient(52vmax 52vmax at 84% 82%, rgba(24, 96, 116, 0.12), transparent 70%),
+    linear-gradient(158deg, #080b12 0%, #05070c 58%, #070a12 100%);
+  background-attachment: fixed;
 }
 
 /* An abstract aurora of drifting, heavily blurred color blobs behind the
@@ -57,59 +63,52 @@ body {
   pointer-events: none;
 }
 
+/* Muted, diffuse washes -- no blend-mode pop, low opacity, heavy blur, and
+   a slow drift, so it reads as atmosphere rather than colored spotlights. */
 .blob {
   position: absolute;
-  width: 46vmax;
-  height: 46vmax;
+  width: 60vmax;
+  height: 60vmax;
   border-radius: 50%;
-  filter: blur(70px);
-  opacity: 0.55;
-  mix-blend-mode: screen;
+  filter: blur(100px);
+  opacity: 0.32;
   will-change: transform;
 }
 
 .blob-green {
-  background: radial-gradient(circle, #1db954 0%, transparent 68%);
-  top: -14vmax;
-  left: -6vmax;
-  animation: drift-a 26s ease-in-out infinite alternate;
+  background: radial-gradient(circle, rgba(29, 185, 84, 0.55) 0%, transparent 70%);
+  top: -22vmax;
+  left: -14vmax;
+  animation: drift-a 82s ease-in-out infinite alternate;
 }
 
 .blob-teal {
-  background: radial-gradient(circle, #10b3a3 0%, transparent 68%);
-  top: 8vmax;
-  right: -14vmax;
-  animation: drift-b 32s ease-in-out infinite alternate;
+  background: radial-gradient(circle, rgba(18, 132, 132, 0.5) 0%, transparent 70%);
+  top: 18vmax;
+  right: -24vmax;
+  animation: drift-b 96s ease-in-out infinite alternate;
 }
 
-.blob-blue {
-  background: radial-gradient(circle, #2f6bff 0%, transparent 70%);
-  bottom: -18vmax;
-  left: 4vmax;
-  animation: drift-c 30s ease-in-out infinite alternate;
-}
-
-.blob-violet {
-  background: radial-gradient(circle, #7c3aed 0%, transparent 72%);
-  bottom: -10vmax;
-  right: 2vmax;
-  opacity: 0.4;
-  animation: drift-a 36s ease-in-out infinite alternate-reverse;
+.blob-slate {
+  background: radial-gradient(circle, rgba(46, 74, 120, 0.5) 0%, transparent 72%);
+  bottom: -26vmax;
+  left: 8vmax;
+  animation: drift-c 90s ease-in-out infinite alternate;
 }
 
 @keyframes drift-a {
   from { transform: translate3d(0, 0, 0) scale(1); }
-  to { transform: translate3d(6vmax, 8vmax, 0) scale(1.12); }
+  to { transform: translate3d(4vmax, 5vmax, 0) scale(1.08); }
 }
 
 @keyframes drift-b {
-  from { transform: translate3d(0, 0, 0) scale(1.05); }
-  to { transform: translate3d(-8vmax, 6vmax, 0) scale(0.92); }
+  from { transform: translate3d(0, 0, 0) scale(1.04); }
+  to { transform: translate3d(-5vmax, 4vmax, 0) scale(0.95); }
 }
 
 @keyframes drift-c {
-  from { transform: translate3d(0, 0, 0) scale(0.95); }
-  to { transform: translate3d(7vmax, -6vmax, 0) scale(1.1); }
+  from { transform: translate3d(0, 0, 0) scale(0.96); }
+  to { transform: translate3d(5vmax, -4vmax, 0) scale(1.07); }
 }
 
 .app {
@@ -153,25 +152,24 @@ h1 {
   font-size: 0.9rem;
 }
 
-/* Glass panels: a translucent frosted fill that refracts the aurora, a
-   lit top edge, and ambient depth. saturate() lets the color behind bleed
-   through so the frost reads as glass, not gray. */
+/* Glass panels. The translucent white gradient is what makes the panel
+   read as a frosted sheet -- visibly lighter than the background and
+   see-through -- so the glass holds up even where backdrop-filter is
+   unsupported or there is little color behind. backdrop-filter then adds
+   the frost, and the lit top edge sells the pane. */
 .panel {
-  background: var(--panel);
-  border: 1px solid var(--edge);
+  background: linear-gradient(157deg,
+    rgba(255, 255, 255, 0.13) 0%,
+    rgba(255, 255, 255, 0.04) 60%,
+    rgba(255, 255, 255, 0.07) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: var(--radius);
   padding: 1.15rem 1.25rem;
-  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.14);
-  backdrop-filter: blur(22px) saturate(150%);
-  -webkit-backdrop-filter: blur(22px) saturate(150%);
-}
-
-/* Without backdrop-filter the frost would be invisible, so fall back to a
-   more opaque fill that still looks deliberate. */
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .panel {
-    background: rgba(20, 24, 34, 0.82);
-  }
+  box-shadow:
+    0 22px 48px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24);
+  backdrop-filter: blur(26px) saturate(135%);
+  -webkit-backdrop-filter: blur(26px) saturate(135%);
 }
 
 #status {
@@ -349,12 +347,6 @@ progress::-moz-progress-bar {
   *::after {
     transition: none !important;
     animation: none !important;
-  }
-
-  .panel {
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-    background: rgba(20, 24, 34, 0.82);
   }
 
   .blob {
