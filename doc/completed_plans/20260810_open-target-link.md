@@ -111,3 +111,28 @@ link into the derived playlist.
 - The link never appears alongside a failure, during a chain, or after
   disconnect, and its label never carries dynamic text.
 - The purity grep stays clean; all prior tests pass unmodified.
+
+## Execution Notes
+
+Executed 2026-08-10. Implementation commit `ff04415`.
+
+Implemented as planned: the static anchor beside the track status line,
+`href` set at the success render in `writeShuffled` from the fixed origin
+plus the encoded target id, hidden at chain start in `runShuffle`, in
+`clearPlaylists` on disconnect, and implicitly on every failure since
+only success unhides it; the `.quiet-link` accent style; the
+`open-target` page marker; and the security-model and application-model
+sentences. One comprehensive harness case drives the whole lifecycle:
+created href, hidden while a gated chain runs, updated href on the same
+target, hidden after a failed write, restored by the next success, and
+retired by disconnect.
+
+Deviations: as with the companion plan, execution ran in a clean worktree
+at `origin/main` because the primary worktree carried unrelated
+in-progress theme work in the same files; those changes are untouched.
+
+Validation, all passing in that worktree: `gofmt -l main.go main_test.go`
+(no output), `go test ./...`, `go vet ./...`, `node --check` on both web
+scripts, `node --test web/pure_test.js web/app_test.js` three consecutive
+runs (121 pass, 0 fail each), `git diff --check`, and the inverted purity
+grep.
