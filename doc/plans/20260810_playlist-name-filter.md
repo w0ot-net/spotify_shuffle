@@ -17,8 +17,9 @@ The page renders one flat list of every playlist on the account, and the
 product's stated goal is large libraries. Finding one playlist among
 dozens means scrolling and scanning, on a phone, every time -- the
 slowest step in a flow whose whole point is one tap. The app already
-filters the display (derived playlists and duplicate names are hidden at
-render time), but the user has no way to narrow the list themselves.
+filters exact current and legacy managed targets out of the source display,
+but it preserves duplicate names and arbitrary suffix-named user playlists;
+the user has no way to narrow the list themselves.
 
 ## Scope
 
@@ -51,8 +52,9 @@ Out of scope:
   accompanies the list. Revisit only if small accounts find it noisy.
 - Fuzzy matching, diacritic folding, or match highlighting.
 - Persisting the query across reloads, keyboard shortcuts, and any
-  filtering of the retained listing (the write flow's target lookup must
-  keep seeing everything, same rule as the derived-playlist filter).
+  filtering of the retained listing (the write flow's marker resolution must
+  keep seeing every managed target, the same rule as the managed-description
+  filter).
 
 ## Design
 
@@ -73,7 +75,8 @@ construction, so the input never needs disabling.
 **Value logic in the pure module.** The predicate (trim the query, empty
 matches all, otherwise case-insensitive substring on the name) is value
 logic and lands in `web/pure.js` under the purity rule, beside
-`displayedPlaylists`. Matching uses the source name, not the rendered
+`displayedPlaylists`. Its direct array result contains every unmarked source,
+including duplicate names. Matching uses the source name, not the rendered
 label, so the Liked Songs row matches "liked" even when its label carries
 the reconnect suffix.
 
@@ -85,8 +88,7 @@ has fixed text and is toggled by the same filter pass, shown exactly when
 the query hides every row -- no dynamic message formatting. Both elements
 follow the list's lifecycle: shown when `renderSourceList` unhides the
 list, hidden -- and the input emptied -- by `clearPlaylists` on
-disconnect. The shadowed-duplicates note in the list status line is
-independent of the filter and does not change.
+disconnect. The routine list status remains independent of the filter.
 
 **Presentation.** A quiet themed input: full row width, the glass
 treatment's muted border and background, the muted placeholder, the

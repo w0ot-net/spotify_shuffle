@@ -79,16 +79,40 @@ test("playlistLabel pluralizes and omits unknown totals", () => {
 test("readPlaylistPage parses items and skips null placeholders", () => {
   assert.deepEqual(plain(TrueShuffle.readPlaylistPage({
     items: [
-      {id: "first", name: "Morning", items: {total: 3}, snapshot_id: "snap-1"},
+      {
+        id: "first",
+        name: "Morning",
+        items: {total: 3},
+        description: "A source playlist",
+        snapshot_id: "snap-1"
+      },
       null,
       {id: "", name: "unexposed"},
       {id: "second", name: "", items: {total: "many"}, snapshot_id: ""},
       {id: "third", snapshot_id: 7}
     ]
   })), [
-    {id: "first", name: "Morning", total: 3, snapshotId: "snap-1"},
-    {id: "second", name: "Untitled playlist", total: null, snapshotId: null},
-    {id: "third", name: "Untitled playlist", total: null, snapshotId: null}
+    {
+      id: "first",
+      name: "Morning",
+      total: 3,
+      description: "A source playlist",
+      snapshotId: "snap-1"
+    },
+    {
+      id: "second",
+      name: "Untitled playlist",
+      total: null,
+      description: null,
+      snapshotId: null
+    },
+    {
+      id: "third",
+      name: "Untitled playlist",
+      total: null,
+      description: null,
+      snapshotId: null
+    }
   ]);
 });
 
@@ -435,6 +459,10 @@ test("write-path URLs are built on the API origin with ids encoded", () => {
     "https://api.spotify.com/v1/playlists/pl%3F1/items"
   );
   assert.equal(
+    TrueShuffle.playlistDetailsURL("pl?1"),
+    "https://api.spotify.com/v1/playlists/pl%3F1"
+  );
+  assert.equal(
     TrueShuffle.playlistTotalURL("pl1"),
     "https://api.spotify.com/v1/playlists/pl1?fields=items.total"
   );
@@ -497,24 +525,93 @@ test("uriBatches splits at 100 preserving order", () => {
   assert.deepEqual(plain(batches[2][0]), "u200");
 });
 
-test("derivedPlaylistName appends the ownership suffix", () => {
+test("derivedPlaylistName appends the target-name suffix", () => {
   assert.equal(TrueShuffle.derivedPlaylistName("Liked Songs"), "Liked Songs TrueShuffle");
   assert.equal(TrueShuffle.derivedPlaylistName("Road trip!"), "Road trip! TrueShuffle");
   assert.equal(TrueShuffle.derivedPlaylistName(""), " TrueShuffle");
 });
 
-test("findPlaylistByName matches exactly and returns the first hit", () => {
-  const playlists = [
-    {id: "a", name: "Morning TrueShuffle"},
-    {id: "b", name: "morning trueshuffle"},
-    {id: "c", name: "Morning TrueShuffle"}
-  ];
-  assert.equal(TrueShuffle.findPlaylistByName(playlists, "Morning TrueShuffle").id, "a",
-    "the first exact match wins");
-  assert.equal(TrueShuffle.findPlaylistByName(playlists, "MORNING TRUESHUFFLE"), null,
-    "matching is case-sensitive");
-  assert.equal(TrueShuffle.findPlaylistByName(playlists, "Evening TrueShuffle"), null);
-  assert.equal(TrueShuffle.findPlaylistByName([], "Morning TrueShuffle"), null);
+test("managedPlaylistDescription binds an exact versioned marker to the source", () => {
+  assert.equal(
+    TrueShuffle.managedPlaylistDescription({liked: true}),
+    "Created by TrueShuffle [source=v1:liked]"
+  );
+  assert.equal(
+    TrueShuffle.managedPlaylistDescription({id: "playlist?/id"}),
+    "Created by TrueShuffle [source=v1:playlist:playlist%3F%2Fid]"
+  );
+  for (const source of [null, {}, {id: ""}, {id: 7}]) {
+    assert.throws(() => TrueShuffle.managedPlaylistDescription(source), /invalid managed playlist source/);
+  }
+});
+
+test("managed playlist recognition accepts only exact current or legacy descriptions", () => {
+  for (const description of [
+    "Created by TrueShuffle",
+    "Created by TrueShuffle [source=v1:liked]",
+    "Created by TrueShuffle [source=v1:playlist:abc123]",
+    "Created by TrueShuffle [source=v1:playlist:playlist%3F%2Fid]"
+  ]) {
+    assert.equal(TrueShuffle.isManagedPlaylistDescription(description), true, description);
+  }
+  for (const description of [
+    null,
+    "Created by TrueShuffle ",
+    "Created by TrueShuffle [source=v2:liked]",
+    "Created by TrueShuffle [source=v1:playlist:]",
+    "Created by TrueShuffle [source=v1:playlist:bad%2fid]",
+    "Created by TrueShuffle [source=v1:playlist:%]",
+    "prefix Created by TrueShuffle [source=v1:liked]"
+  ]) {
+    assert.equal(TrueShuffle.isManagedPlaylistDescription(description), false, String(description));
+  }
+});
+
+test("resolveManagedTarget prefers a source marker and can adopt one exact legacy target", () => {
+  const source = {id: "source-1", name: "Morning"};
+  const structured = {id: "managed", name: "Old name", description:
+    TrueShuffle.managedPlaylistDescription(source)};
+  const legacy = {id: "legacy", name: "Morning TrueShuffle", description: "Created by TrueShuffle"};
+  const unmarked = {id: "user", name: "Morning TrueShuffle", description: "Personal copy"};
+  assert.deepEqual(
+    plain(TrueShuffle.resolveManagedTarget([unmarked, legacy, structured], source, "Morning TrueShuffle")),
+    {target: structured, legacy: false, description: structured.description}
+  );
+  assert.deepEqual(
+    plain(TrueShuffle.resolveManagedTarget([unmarked, legacy], source, "Morning TrueShuffle")),
+    {
+      target: legacy,
+      legacy: true,
+      description: "Created by TrueShuffle [source=v1:playlist:source-1]"
+    }
+  );
+  assert.deepEqual(
+    plain(TrueShuffle.resolveManagedTarget([unmarked], source, "Morning TrueShuffle")),
+    {
+      target: null,
+      legacy: false,
+      description: "Created by TrueShuffle [source=v1:playlist:source-1]"
+    }
+  );
+});
+
+test("resolveManagedTarget refuses ambiguous structured and legacy candidates", () => {
+  const source = {id: "source-1", name: "Morning"};
+  const description = TrueShuffle.managedPlaylistDescription(source);
+  assert.throws(
+    () => TrueShuffle.resolveManagedTarget([
+      {id: "a", name: "One", description: description},
+      {id: "b", name: "Two", description: description}
+    ], source, "Morning TrueShuffle"),
+    TrueShuffle.TargetAmbiguousError
+  );
+  assert.throws(
+    () => TrueShuffle.resolveManagedTarget([
+      {id: "a", name: "Morning TrueShuffle", description: "Created by TrueShuffle"},
+      {id: "b", name: "Morning TrueShuffle", description: "Created by TrueShuffle"}
+    ], source, "Morning TrueShuffle"),
+    TrueShuffle.TargetAmbiguousError
+  );
 });
 
 test("shuffleResultMessage distinguishes created from updated", () => {
@@ -551,50 +648,34 @@ test("SpotifyRequestError carries the status, path, and Spotify's message", () =
   );
 });
 
-test("displayedPlaylists hides derived names and keeps near misses", () => {
+test("displayedPlaylists hides exact managed descriptions, not names", () => {
   const playlists = [
-    {id: "a", name: "Morning"},
-    {id: "b", name: "Morning TrueShuffle"},
-    {id: "c", name: "TrueShuffle"},
-    {id: "d", name: "Morning TrueShuffle Backup"},
-    {id: "e", name: " TrueShuffle"}
+    {id: "a", name: "Morning", description: null},
+    {id: "b", name: "Morning TrueShuffle", description: "Personal copy"},
+    {id: "c", name: "Anything", description: "Created by TrueShuffle"},
+    {id: "d", name: "Other", description: "Created by TrueShuffle [source=v1:playlist:source-1]"},
+    {id: "e", name: "Almost", description: "Created by TrueShuffle "}
   ];
   const displayed = TrueShuffle.displayedPlaylists(playlists);
   assert.deepEqual(
-    plain(displayed.playlists).map((playlist) => playlist.id),
-    ["a", "c", "d"],
-    "only names ending with the derived suffix are hidden"
+    plain(displayed).map((playlist) => playlist.id),
+    ["a", "b", "e"]
   );
-  assert.equal(displayed.shadowedCount, 0, "derived hiding is routine and uncounted");
   assert.equal(playlists.length, 5, "the retained listing itself is untouched");
 });
 
-test("displayedPlaylists keeps the first instance of each name and counts the shadowed", () => {
+test("displayedPlaylists keeps every duplicate name including Liked Songs", () => {
   const playlists = [
-    {id: "a", name: "Morning"},
-    {id: "b", name: "Liked Songs"},
-    {id: "c", name: "Morning"},
-    {id: "d", name: "Evening"},
-    {id: "e", name: "Morning"}
+    {id: "a", name: "Morning", description: null},
+    {id: "b", name: "Liked Songs", description: null},
+    {id: "c", name: "Morning", description: null},
+    {id: "d", name: "Evening", description: null},
+    {id: "e", name: "Morning", description: null}
   ];
   const displayed = TrueShuffle.displayedPlaylists(playlists);
   assert.deepEqual(
-    plain(displayed.playlists).map((playlist) => playlist.id),
-    ["a", "d"],
-    "first instance wins; the liked row counts as the first \"Liked Songs\""
-  );
-  assert.equal(displayed.shadowedCount, 3);
-});
-
-test("shadowedRowsNote renders exactly when something was shadowed", () => {
-  assert.equal(TrueShuffle.shadowedRowsNote(0), "");
-  assert.equal(
-    TrueShuffle.shadowedRowsNote(1),
-    "1 playlist with a duplicate name is hidden; rename it in Spotify to shuffle it."
-  );
-  assert.equal(
-    TrueShuffle.shadowedRowsNote(3),
-    "3 playlists with duplicate names are hidden; rename them in Spotify to shuffle them."
+    plain(displayed).map((playlist) => playlist.id),
+    ["a", "b", "c", "d", "e"]
   );
 });
 
@@ -622,6 +703,7 @@ test("telemetryEndpointClass maps every role and rejects unknown ones", () => {
   assert.equal(TrueShuffle.telemetryEndpointClass("liked-items-page"), "liked-tracks");
   assert.equal(TrueShuffle.telemetryEndpointClass("liked-fingerprint-verify"), "liked-tracks");
   assert.equal(TrueShuffle.telemetryEndpointClass("target-create"), "playlists");
+  assert.equal(TrueShuffle.telemetryEndpointClass("target-details-update"), "playlist-metadata");
   assert.equal(TrueShuffle.telemetryEndpointClass("target-replace"), "playlist-items");
   assert.equal(TrueShuffle.telemetryEndpointClass("target-append"), "playlist-items");
   assert.equal(TrueShuffle.telemetryEndpointClass("target-total-verify"), "playlist-metadata");

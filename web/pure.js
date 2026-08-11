@@ -22,6 +22,7 @@ var TrueShuffle = (function () {
   class TokenRejectedError extends Error {}
   class AuthorizationRevokedError extends TokenRejectedError {}
   class PlaylistChangedError extends Error {}
+  class TargetAmbiguousError extends Error {}
   // A locally enforced Spotify cooldown: no request was sent. Carries the
   // absolute deadline so callers can render the retry time.
   class CooldownActiveError extends Error {
@@ -112,6 +113,7 @@ var TrueShuffle = (function () {
         id: item.id,
         name: typeof item.name === "string" && item.name !== "" ? item.name : "Untitled playlist",
         total: item.items && Number.isFinite(item.items.total) ? item.items.total : null,
+        description: typeof item.description === "string" ? item.description : null,
         // The listing's version stamp is what selection compares against the
         // track cache, so a hit needs no extra request.
         snapshotId: typeof item.snapshot_id === "string" && item.snapshot_id !== "" ? item.snapshot_id : null
@@ -183,6 +185,10 @@ var TrueShuffle = (function () {
     return playlistEndpointPrefix + encodeURIComponent(playlistId) + "/items";
   }
 
+  function playlistDetailsURL(playlistId) {
+    return playlistEndpointPrefix + encodeURIComponent(playlistId);
+  }
+
   function playlistTotalURL(playlistId) {
     return playlistEndpointPrefix + encodeURIComponent(playlistId) +
       "?fields=items.total";
@@ -230,21 +236,88 @@ var TrueShuffle = (function () {
     return batches;
   }
 
-  // The suffix is the app's ownership claim: the only playlists the write
-  // flow ever addresses carry it.
+  // The suffix is the creation and current-name contract. Ownership is
+  // established separately by the exact managed description below.
   const derivedPlaylistSuffix = " TrueShuffle";
 
   function derivedPlaylistName(sourceName) {
     return sourceName + derivedPlaylistSuffix;
   }
 
-  function findPlaylistByName(playlists, name) {
-    for (const playlist of playlists) {
-      if (playlist.name === name) {
-        return playlist;
-      }
+  const legacyManagedPlaylistDescription = "Created by TrueShuffle";
+  const managedPlaylistDescriptionPrefix = "Created by TrueShuffle [source=v1:";
+
+  function managedPlaylistDescription(source) {
+    if (source && source.liked === true) {
+      return managedPlaylistDescriptionPrefix + "liked]";
     }
-    return null;
+    if (!source || typeof source.id !== "string" || source.id === "") {
+      throw new Error("invalid managed playlist source");
+    }
+    return managedPlaylistDescriptionPrefix + "playlist:" +
+      encodeURIComponent(source.id) + "]";
+  }
+
+  function isStructuredManagedPlaylistDescription(value) {
+    if (typeof value !== "string" ||
+        !value.startsWith(managedPlaylistDescriptionPrefix) ||
+        !value.endsWith("]")) {
+      return false;
+    }
+    const key = value.slice(managedPlaylistDescriptionPrefix.length, -1);
+    if (key === "liked") {
+      return true;
+    }
+    if (!key.startsWith("playlist:")) {
+      return false;
+    }
+    const encodedID = key.slice("playlist:".length);
+    if (encodedID === "") {
+      return false;
+    }
+    try {
+      const playlistID = decodeURIComponent(encodedID);
+      return playlistID !== "" && encodeURIComponent(playlistID) === encodedID;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function isManagedPlaylistDescription(value) {
+    return value === legacyManagedPlaylistDescription ||
+      isStructuredManagedPlaylistDescription(value);
+  }
+
+  function resolveManagedTarget(playlists, source, targetName) {
+    const description = managedPlaylistDescription(source);
+    const managed = playlists.filter(function (playlist) {
+      return playlist.description === description;
+    });
+    if (managed.length > 1) {
+      throw new TargetAmbiguousError(
+        "More than one TrueShuffle target is marked for this source. " +
+        "Remove the duplicates in Spotify and try again."
+      );
+    }
+    if (managed.length === 1) {
+      return {target: managed[0], legacy: false, description: description};
+    }
+
+    const legacy = playlists.filter(function (playlist) {
+      return playlist.description === legacyManagedPlaylistDescription &&
+        playlist.name === targetName;
+    });
+    if (legacy.length > 1) {
+      throw new TargetAmbiguousError(
+        "More than one legacy TrueShuffle target matches this source. " +
+        "Remove the duplicates in Spotify and try again."
+      );
+    }
+    return {
+      target: legacy.length === 1 ? legacy[0] : null,
+      legacy: legacy.length === 1,
+      description: description
+    };
   }
 
   function shuffleResultMessage(created, name, count, elapsedMilliseconds) {
@@ -348,38 +421,14 @@ var TrueShuffle = (function () {
 
   const likedSourceName = "Liked Songs";
 
-  // The rendered list hides the app's own derived playlists and keeps only
-  // the first instance of each name (the Liked Songs row counts as the
-  // first "Liked Songs"), so visible names are unique and name-keyed
-  // targets are unambiguous. The retained listing keeps everything so the
-  // write flow's target lookup still sees it. Derived hiding is routine
-  // and uncounted; shadowed duplicates are counted so the renderer can
-  // say so instead of silently truncating.
+  // Only playlists carrying an exact managed description are hidden. Names
+  // are presentation, so suffix-named and duplicate-named user playlists
+  // remain usable sources. The retained listing keeps managed targets for
+  // marker-based lookup.
   function displayedPlaylists(playlists) {
-    const seenNames = new Set([likedSourceName]);
-    const visible = [];
-    let shadowedCount = 0;
-    for (const playlist of playlists) {
-      if (playlist.name.endsWith(derivedPlaylistSuffix)) {
-        continue;
-      }
-      if (seenNames.has(playlist.name)) {
-        shadowedCount += 1;
-        continue;
-      }
-      seenNames.add(playlist.name);
-      visible.push(playlist);
-    }
-    return {playlists: visible, shadowedCount: shadowedCount};
-  }
-
-  function shadowedRowsNote(shadowedCount) {
-    if (shadowedCount === 0) {
-      return "";
-    }
-    return shadowedCount === 1
-      ? "1 playlist with a duplicate name is hidden; rename it in Spotify to shuffle it."
-      : shadowedCount + " playlists with duplicate names are hidden; rename them in Spotify to shuffle them.";
+    return playlists.filter(function (playlist) {
+      return !isManagedPlaylistDescription(playlist.description);
+    });
   }
 
   function likedRowLabel(hasLibraryScope) {
@@ -404,6 +453,7 @@ var TrueShuffle = (function () {
     "liked-items-page": "liked-tracks",
     "liked-fingerprint-verify": "liked-tracks",
     "target-create": "playlists",
+    "target-details-update": "playlist-metadata",
     "target-replace": "playlist-items",
     "target-append": "playlist-items",
     "target-total-verify": "playlist-metadata"
@@ -484,9 +534,9 @@ var TrueShuffle = (function () {
   // (2026-08-09 and 2026-08-10). Spotify sends Retry-After on those 429s
   // but does not expose the header to browser scripts (CORS), so the page
   // cannot read Spotify's own deadline; it counts down the observed
-  // 24-hour window from the 429 it saw instead. An out-of-band probe near
+  // 24-hour period from the 429 it saw instead. An out-of-band probe near
   // one lockout's end measured a shorter 1,808-second tail penalty, so
-  // the window is the conservative bound, not a promise.
+  // that period is the conservative bound, not a promise.
   const likedCooldownMs = 24 * 60 * 60 * 1000;
 
   function remainingTimeLabel(remainingMs) {
@@ -608,6 +658,7 @@ var TrueShuffle = (function () {
     CooldownActiveError: CooldownActiveError,
     OperationCancelledError: OperationCancelledError,
     PlaylistChangedError: PlaylistChangedError,
+    TargetAmbiguousError: TargetAmbiguousError,
     TokenRejectedError: TokenRejectedError,
     addTracksURL: addTracksURL,
     cooldownDeadline: cooldownDeadline,
@@ -627,8 +678,8 @@ var TrueShuffle = (function () {
     displayedPlaylists: displayedPlaylists,
     emptySourceMessage: emptySourceMessage,
     encodeTelemetryReport: encodeTelemetryReport,
-    findPlaylistByName: findPlaylistByName,
     hasScope: hasScope,
+    isManagedPlaylistDescription: isManagedPlaylistDescription,
     likedCooldownMs: likedCooldownMs,
     likedLockoutMessage: likedLockoutMessage,
     likedPageURL: likedPageURL,
@@ -639,11 +690,13 @@ var TrueShuffle = (function () {
     maxPlaylistTracks: maxPlaylistTracks,
     maxTelemetryEvents: maxTelemetryEvents,
     maxTelemetryReportLength: maxTelemetryReportLength,
+    managedPlaylistDescription: managedPlaylistDescription,
     normalizeRetryAfter: normalizeRetryAfter,
     normalizeBackgroundChoice: normalizeBackgroundChoice,
     normalizeSpotifyReason: normalizeSpotifyReason,
     normalizeTelemetryCount: normalizeTelemetryCount,
     playlistLabel: playlistLabel,
+    playlistDetailsURL: playlistDetailsURL,
     playlistSnapshotURL: playlistSnapshotURL,
     playlistTotalURL: playlistTotalURL,
     playlistsEndpoint: playlistsEndpoint,
@@ -656,7 +709,7 @@ var TrueShuffle = (function () {
     remainingTimeLabel: remainingTimeLabel,
     remainingTrackOffsets: remainingTrackOffsets,
     rollingRequestHistory: rollingRequestHistory,
-    shadowedRowsNote: shadowedRowsNote,
+    resolveManagedTarget: resolveManagedTarget,
     shuffledURIs: shuffledURIs,
     shuffleResultMessage: shuffleResultMessage,
     SpotifyRequestError: SpotifyRequestError,

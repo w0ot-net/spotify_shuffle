@@ -1,6 +1,6 @@
 # Spotify integration
 
-*Revised: 2026-08-10*
+*Revised: 2026-08-11*
 
 This page owns the contract with Spotify: the endpoints in use, the paging
 bounds, and the scopes position. Return to the
@@ -16,7 +16,8 @@ All Spotify traffic originates in the browser. These endpoint paths are in use:
   connected account's playlists and POST creating a private shuffled
   playlist.
 - `https://api.spotify.com/v1/playlists/{id}` -- authenticated GET pinning
-  and verifying the playlist `snapshot_id` around a track read.
+  and verifying the playlist `snapshot_id` around a track read, and PUT
+  updating a managed target's name and description.
 - `https://api.spotify.com/v1/playlists/{id}/items` -- authenticated GET
   reading the selected playlist's track URIs, POST appending shuffled URIs,
   and PUT replacing existing contents.
@@ -31,9 +32,9 @@ Listing requests `limit=50`, the endpoint maximum, and follows the response
 pages -- the API's 10,000-playlist library cap divided by the page size --
 and exceeding the bound is an error, never a silent truncation, because a
 silently short list would later shuffle the wrong playlist. Full playlist
-objects are returned; the page reader consumes `id`, `name`, `items.total`,
-and `snapshot_id`, skipping the null placeholders Spotify emits for items it
-cannot expose.
+objects are returned; the page reader consumes `id`, `name`, `description`,
+`items.total`, and `snapshot_id`, skipping the null placeholders Spotify emits
+for items it cannot expose.
 
 ## Track reading
 
@@ -87,26 +88,49 @@ tokens are gated to a reconnect).
 
 ## Writing the shuffled playlist
 
-Shuffled output lands in one derived playlist per source, named
-`<source name> TrueShuffle`. The suffix is the app's ownership claim and
-an invariant, not a convention: every playlist id the write flow touches
-is either returned by the create call it just made or found in the
-page-load listing under a name exactly equal to the derived name, so a
-playlist without the suffix is unreachable by construction.
+Shuffled output lands in a managed playlist whose current name is
+`<source name> TrueShuffle`. The exact, versioned description is the ownership
+authority: `Created by TrueShuffle [source=v1:liked]` for Liked Songs or
+`Created by TrueShuffle [source=v1:playlist:<encoded id>]` for a playlist.
+The marker contains no account, token, track, or source-name data. The suffix
+is only the creation and current-name contract and never authorizes a write.
 
-When no listed playlist bears the derived name, the flow `POST`s a private
-playlist under that name to `/v1/me/playlists`, and appends the shuffled URIs
-to `/v1/playlists/{id}/items` in sequential batches of at most 100 --
-sequential because each append lands at the end, so arrival order is the
-shuffled order.
-When the target exists, the first batch goes by `PUT`, replacing the
-entire contents, and the remaining batches append; a rerun after any
-mid-write failure therefore starts from a clean replacement, never
-appending onto wreckage. Either way a final `fields=items.total` read of
-the target must equal the written count or the flow names the target as
-possibly incomplete and offers a rerun; it never claims success on a
-shortfall. A source above the 10,000-item playlist cap fails before
-anything is written.
+Target resolution uses the retained page-load listing before any target
+mutation:
+
+1. Exactly one playlist with the selected source's structured marker is the
+   target, regardless of its current name.
+2. Multiple structured matches are ambiguous and stop before any target
+   write.
+3. With no structured match, exactly one playlist whose description is the
+   old exact `Created by TrueShuffle` value and whose name is the exact derived
+   name is a legacy target. Its structured marker is persisted before its
+   items change.
+4. Multiple matching legacy targets are ambiguous and stop before any target
+   write.
+5. Otherwise the flow creates a private target with the derived name and
+   structured marker. An unmarked same-name playlist is never selected and
+   does not block this creation; Spotify permits duplicate names.
+
+A structured target whose source was renamed gets the current derived name
+before its items change. Details updates go through the same paced,
+cancellable request lane as every Spotify call and use an explicit
+empty-success response mode because Spotify returns no JSON body. Creation and
+details updates happen before the item-write phase.
+
+The shuffled URIs are written to `/v1/playlists/{id}/items` in sequential
+batches of at most 100. A new target receives POST appends. For an existing
+target, the first batch goes by PUT, replacing the entire contents, and the
+remaining batches append; a rerun after any mid-write failure therefore starts
+from a clean replacement, never appending onto wreckage. Either way a final
+`fields=items.total` read of the target must equal the written count or the
+flow names the target as possibly incomplete and offers a rerun; it never
+claims success on a shortfall. A source above the 10,000-item playlist cap
+fails before anything is written.
+
+This client-only protocol does not lock across tabs or devices. Concurrent
+first writes can create duplicate structured targets; once a listing observes
+them, the ambiguity rule refuses to overwrite either rather than guessing.
 
 ## Snapshot semantics
 

@@ -73,7 +73,7 @@ func TestAppPage(t *testing.T) {
 				`id="track-progress"`,
 				`id="open-target"`,
 				`sees your account.`,
-				`never pile up`,
+				`reuses and rewrites`,
 				`shuffle turned off`,
 				`forgets this browser`,
 				`id="wait-status"`,

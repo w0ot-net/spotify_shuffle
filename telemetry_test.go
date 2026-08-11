@@ -255,6 +255,14 @@ func TestTelemetryIntakeRejectsInvalidInput(t *testing.T) {
 	if err := validateTelemetryReport(&blocked); err != nil {
 		t.Errorf("cooldown-blocked event rejected: %v", err)
 	}
+
+	details := validTestReport("1123456789abcdef0123456789abcdef")
+	details.Events[1].Role = "target-details-update"
+	details.Events[1].EndpointClass = "playlist-metadata"
+	details.Events[1].Method = http.MethodPut
+	if err := validateTelemetryReport(&details); err != nil {
+		t.Errorf("target-details-update event rejected: %v", err)
+	}
 }
 
 func TestTelemetryIntakeChecksBrowserProvenance(t *testing.T) {

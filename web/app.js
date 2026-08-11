@@ -760,7 +760,7 @@
   // long deadline fails locally -- recorded as cooldown-blocked, no request
   // sent -- until it expires. Cancellation is checked before every wait and
   // dispatch so nothing runs after disconnect.
-  async function requestSpotify(token, url, role, body, method) {
+  async function requestSpotify(token, url, role, body, method, responseMode) {
     const operation = activeOperation;
     const signal = operation !== null ? operation.controller.signal : null;
     const likedRole = TrueShuffle.telemetryEndpointClass(role) === "liked-tracks";
@@ -850,6 +850,12 @@
           // Set before parsing so a malformed success body keeps this label.
           event.result = "invalid-response";
           event.status = response.status;
+        }
+        if (responseMode === "empty") {
+          if (event !== null) {
+            event.result = "ok";
+          }
+          return null;
         }
         const payload = await response.json();
         if (event !== null) {
@@ -1230,29 +1236,48 @@
     return words[0] % n;
   }
 
-  // Writes land in the one derived target per source -- created under the
-  // derived name when absent, replaced in full when present. Every id this
-  // flow addresses is either returned by the create call it just made or
-  // found in the listing under the exact derived name, so a playlist
-  // without the suffix is unreachable by construction.
+  // Writes land only in a target whose exact managed description names this
+  // source, or in one legacy target that is marked before its items change.
+  // Names are the creation/current-name contract, never proof of ownership.
   async function writeShuffled(token, source, uris, changes) {
     const targetName = TrueShuffle.derivedPlaylistName(source.name);
     renderTrackStatus("Shuffling into \"" + targetName + "\"...");
     const writeStart = Date.now();
-    let target = TrueShuffle.findPlaylistByName(listedPlaylists, targetName);
-    const overwriting = target !== null;
+    let target = null;
+    let overwriting = false;
+    let itemWriteStarted = false;
     try {
+      const resolved = TrueShuffle.resolveManagedTarget(listedPlaylists, source, targetName);
+      target = resolved.target;
+      overwriting = target !== null;
       const shuffled = TrueShuffle.shuffledURIs(uris, randomBelow);
       if (!overwriting) {
         const created = TrueShuffle.readCreatedPlaylist(await requestSpotify(
           token,
           TrueShuffle.createPlaylistURL(),
           "target-create",
-          {name: targetName, public: false, description: "Created by TrueShuffle"}
+          {name: targetName, public: false, description: resolved.description}
         ));
-        target = {id: created.id, name: created.name, total: null, snapshotId: null};
+        target = {
+          id: created.id,
+          name: created.name,
+          total: null,
+          description: resolved.description,
+          snapshotId: null
+        };
         listedPlaylists.push(target);
         setOperationContext({target_disposition: "created"});
+      } else if (resolved.legacy || target.name !== targetName) {
+        await requestSpotify(
+          token,
+          TrueShuffle.playlistDetailsURL(target.id),
+          "target-details-update",
+          {name: targetName, description: resolved.description},
+          "PUT",
+          "empty"
+        );
+        target.name = targetName;
+        target.description = resolved.description;
       }
       let written = 0;
       renderTrackProgress(written, shuffled.length);
@@ -1261,6 +1286,7 @@
         // On an existing target the first batch replaces the entire
         // contents, so a rerun never appends onto wreckage.
         const replace = overwriting && index === 0;
+        itemWriteStarted = true;
         await requestSpotify(
           token,
           TrueShuffle.addTracksURL(target.id),
@@ -1296,20 +1322,28 @@
         return false;
       }
       if (wasCancelled(error)) {
-        renderTrackStatus(target === null
+        renderTrackStatus(target === null || !itemWriteStarted
           ? "Cancelled."
           : "Cancelled. \"" + target.name + "\" may be incomplete; shuffle again to rewrite it.");
+        return false;
+      }
+      if (error instanceof TrueShuffle.TargetAmbiguousError) {
+        renderTrackStatus(error.message);
         return false;
       }
       if (error instanceof TrueShuffle.CooldownActiveError) {
         renderTrackStatus(target === null
           ? "The shuffled playlist could not be created. " + error.message
+          : !itemWriteStarted
+            ? "The shuffled playlist could not be prepared. " + error.message
           : "\"" + target.name + "\" may be incomplete. " + error.message +
             " Shuffle again afterward.");
         return false;
       }
       renderTrackStatus(target === null
         ? "The shuffled playlist could not be created" + failureDetail(error) + ". Try again."
+        : !itemWriteStarted
+          ? "The shuffled playlist could not be prepared" + failureDetail(error) + ". Try again."
         : "\"" + target.name + "\" may be incomplete" + failureDetail(error) +
           ". Shuffle again to rewrite it.");
       return false;
@@ -1454,11 +1488,8 @@
     finishOperation(operation, "complete");
     listedPlaylists = playlists;
     const displayed = TrueShuffle.displayedPlaylists(playlists);
-    renderSourceList(token, displayed.playlists);
-    // A shadowed duplicate is unshuffleable until renamed; hiding it
-    // silently would be the listing's version of silent truncation.
-    const note = TrueShuffle.shadowedRowsNote(displayed.shadowedCount);
-    renderPlaylistStatus("Select a playlist to shuffle it." + (note === "" ? "" : " " + note));
+    renderSourceList(token, displayed);
+    renderPlaylistStatus("Select a playlist to shuffle it.");
   }
 
   async function startAuthorization() {

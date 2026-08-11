@@ -1,6 +1,6 @@
 # Application model
 
-*Revised: 2026-08-10*
+*Revised: 2026-08-11*
 
 This page owns the browser application's structure: the two-script split, the
 purity rule, and the structural lifecycle. Which authorization outcome
@@ -19,8 +19,8 @@ tokens-stay-in-this-browser fact, visible exactly when Connect is, by a
 stylesheet rule), a disconnect note (forgetting is browser-local and
 revocation lives in Spotify's app settings, visible exactly when
 Disconnect is, by the same rule shape), and a "How it works" explainer
-ending the workspace panel (the derived-copy contract by example, the
-never-modified guarantee, the play-with-Spotify-shuffle-off guidance, the
+ending the workspace panel (the ordinary sequential-reuse contract by example,
+the never-modified guarantee, the play-with-Spotify-shuffle-off guidance, the
 slow-first/fast-unchanged-repeat expectation, and page-load freshness;
 while disconnected it is the panel's only visible content, so the panel
 is never an empty frame) -- that loads two
@@ -31,9 +31,9 @@ classic scripts with `defer`, in order:
    validation, playlist- and track-page parsing, track URL construction and
    offset computation, track-page assembly, cache-record validation, the
    visual-background choice validation, the multiset track difference, the
-   Fisher-Yates shuffle, derived-name
-   derivation and lookup, the display filter, label and message formatting,
-   and the paging-cursor check.
+   Fisher-Yates shuffle, derived-name and managed-description construction,
+   marker-based target resolution, the display filter, label and message
+   formatting, and the paging-cursor check.
 2. `web/app.js` is the platform adapter. It reads `TrueShuffle` while
    loading, owns every `document`, `fetch`, storage, crypto, and history
    interaction, and wires the value logic to the page.
@@ -109,17 +109,13 @@ The page-state vocabulary the lifecycle renders:
 
 ## The one gesture
 
-The page is one list: Liked Songs first, then the account's playlists with
-the app's own derived ` TrueShuffle` playlists hidden by a render-time
-filter -- display filtering only, because the retained listing must keep
-derived entries for the write flow's target lookup. Visible names are also
-unique: only the first instance of each name renders, in listing order,
-with the Liked Songs row counting as the first "Liked Songs", so no two
-clickable rows can share a derived target. A shadowed duplicate is
-unshuffleable until renamed in Spotify -- an accepted cost, but not a
-silent one: when deduplication hides anything, the list status line
-carries a one-line note counting the hidden rows, while the routine
-hiding of derived targets goes unannounced. Liked Songs is a
+The page is one list: Liked Songs first, then the account's playlists. A
+render-time filter hides only playlists carrying an exact current or legacy
+TrueShuffle description -- display filtering only, because the retained
+listing must keep managed entries for marker-based target resolution. Names
+do not establish identity: every duplicate-named playlist renders, including
+a real playlist named "Liked Songs", and an arbitrary user playlist ending in
+` TrueShuffle` remains visible. Liked Songs is a
 pseudo-playlist entering the shared selection flow with a sentinel id (a
 hyphen cannot appear in a Spotify id, so it can never collide), not a
 parallel code path.
@@ -137,10 +133,17 @@ no snapshot: a fingerprint match costs one page-0 request and reuses the
 cached URIs. A loaded source with zero tracks reports that
 and writes nothing; otherwise the chain Fisher-Yates-shuffles the URIs
 with crypto-backed unbiased randomness (the pure shuffle takes the
-randomness as an argument) and writes the source's derived target --
-created when absent, replaced in full when present. The fetched listing is
-retained in module scope as the target lookup, and a created target joins
-it so a repeat click overwrites instead of duplicating.
+randomness as an argument) and writes the source's managed target. An exact
+versioned description marker binds that target to the playlist source id or
+the Liked Songs source kind; the derived name is only the creation and current
+name. One exact legacy target is marked before its items change, while an
+unmarked same-name playlist is untouched and ambiguous current or legacy
+matches fail before any target write. A structured target is renamed when its
+source name changes. The fetched listing is retained in module scope for this
+resolution, and a created target joins it so a repeat click in the same page
+load overwrites instead of duplicating. Separate tabs or devices can still
+race to create duplicate markers; a later listing detects the ambiguity and
+refuses to choose between them.
 
 A token predating `user-library-read` renders the Liked Songs row as the
 reconnect action -- the ordinary authorization flow -- while playlist rows

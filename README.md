@@ -26,21 +26,28 @@ account's playlists -- and one click on any row shuffles it: the row's
 ordered track URIs are read (one paced request at a time, with a live
 progress bar and guards that fail the read if the source changes
 mid-flight), shuffled
-with unbiased crypto randomness, and written to that source's one stable
-derived playlist, `<source name> TrueShuffle` -- created private on first
-use and rewritten in place on every rerun, so repeat shuffles never
-accumulate playlists. Playlist track lists are cached in IndexedDB and
+with unbiased crypto randomness, and written to that source's managed
+playlist, `<source name> TrueShuffle` -- created private on first use and
+rewritten in place on ordinary sequential reruns. Ownership comes from an
+exact versioned marker in the target description that identifies the source
+playlist id (or Liked Songs), never from the name alone. An existing target
+with TrueShuffle's old exact description is marked before its tracks change;
+an unmarked same-name playlist stays untouched, and ambiguous marked targets
+stop the write. Concurrent tabs or devices can still create duplicate managed
+targets before either sees the other; a later shuffle detects that ambiguity
+and asks the user to resolve it in Spotify. Playlist track lists are cached in IndexedDB and
 validated with Spotify snapshots, so re-shuffling an unchanged playlist
 issues no track reads and a changed one reports how many tracks were added
 and removed. Liked Songs is cached the same way but validated with a
 fingerprint -- the library's size plus its newest page -- since it is not
 a playlist and has no snapshot; re-shuffling an unchanged library costs a
 single request (connections made before this feature show a one-time
-reconnect on its row to grant the library scope). The app hides its own derived playlists from the
-list and shows each playlist name once (a note counts any hidden duplicates,
-which become shuffleable when renamed in Spotify), and the only playlists it
-ever writes are the ones it derives with the " TrueShuffle" suffix; source
-playlists are never modified. The workspace panel ends with a short "How it
+reconnect on its row to grant the library scope). The app hides playlists
+carrying an exact current or legacy TrueShuffle description from the source
+list. Duplicate names and arbitrary user playlists ending in ` TrueShuffle`
+remain visible because source ids, not names, distinguish them. The only
+playlists it writes are created or adopted managed targets; source playlists
+are never modified. The workspace panel ends with a short "How it
 works" explainer stating that contract and its practical limits up front --
 including that the derived copy must be played with Spotify's own shuffle
 turned off, since the random order is the playlist itself -- and a note

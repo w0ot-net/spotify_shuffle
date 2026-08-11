@@ -317,29 +317,55 @@ function deferred() {
   return {promise: promise, resolve: resolve};
 }
 
-// Serves the whole write path for any number of derived targets: creation
-// (assigning target-1, target-2, ...), batch writes with
-// replace-versus-append contents modeling, and totals. Pre-register
-// {id, name, contents} rows via backend.targets for derived playlists that
-// already exist. handle() returns null for URLs it does not own.
+// Serves the whole managed-target write path: creation (assigning target-1,
+// target-2, ...), details updates, batch writes with replace-versus-append
+// contents modeling, and totals. Pre-register {id, name, description,
+// contents} rows via backend.targets for targets that already exist.
+// handle() returns null for URLs it does not own.
 function makeWriteBackend() {
-  const backend = {targets: [], createBodies: [], writes: [], nextId: 1};
+  const backend = {
+    targets: [],
+    calls: [],
+    createBodies: [],
+    detailUpdates: [],
+    writes: [],
+    nextId: 1
+  };
   backend.find = (id) => backend.targets.find((target) => target.id === id) || null;
   backend.writesFor = (id) => backend.writes.filter((write) => write.id === id);
   backend.handle = (url, requestOptions) => {
     if (url === playlistsEndpoint) {
       assert.equal(requestOptions.method, "POST");
       const body = JSON.parse(requestOptions.body);
+      backend.calls.push({kind: "create", body: body});
       backend.createBodies.push(body);
-      const target = {id: "target-" + backend.nextId, name: body.name, contents: null};
+      const target = {
+        id: "target-" + backend.nextId,
+        name: body.name,
+        description: body.description,
+        contents: null
+      };
       backend.nextId += 1;
       backend.targets.push(target);
       return jsonResponse(200, {id: target.id, name: target.name});
+    }
+    const details = url.match(/^https:\/\/api\.spotify\.com\/v1\/playlists\/([^/?]+)$/);
+    if (details !== null && backend.find(details[1]) !== null) {
+      assert.equal(requestOptions.method, "PUT");
+      const target = backend.find(details[1]);
+      const body = JSON.parse(requestOptions.body);
+      const update = {id: target.id, body: body};
+      backend.calls.push({kind: "details", id: target.id, body: body});
+      backend.detailUpdates.push(update);
+      target.name = body.name;
+      target.description = body.description;
+      return jsonResponse(200, null, new Error("empty response must not be parsed"));
     }
     const write = url.match(/^https:\/\/api\.spotify\.com\/v1\/playlists\/([^/?]+)\/items$/);
     if (write !== null && backend.find(write[1]) !== null) {
       const target = backend.find(write[1]);
       const uris = JSON.parse(requestOptions.body).uris;
+      backend.calls.push({kind: "items", id: target.id, method: requestOptions.method});
       backend.writes.push({id: target.id, method: requestOptions.method, uris: uris});
       target.contents = requestOptions.method === "PUT"
         ? uris.slice()
@@ -1408,6 +1434,10 @@ test("one click on Liked Songs loads, shuffles, and writes the derived target", 
   assert.equal(backend.createBodies.length, 1);
   assert.equal(backend.createBodies[0].name, "Liked Songs TrueShuffle");
   assert.equal(backend.createBodies[0].public, false);
+  assert.equal(
+    backend.createBodies[0].description,
+    "Created by TrueShuffle [source=v1:liked]"
+  );
   assert.deepEqual(backend.writes.map((write) => write.method), ["POST", "POST"],
     "a freshly created target only appends");
   assert.deepEqual(backend.writes.map((write) => write.uris.length), [100, 20]);
@@ -1422,18 +1452,25 @@ test("one click on Liked Songs loads, shuffles, and writes the derived target", 
   assert.equal(buttons[0].disabled, false);
 });
 
-test("an existing derived target is overwritten and hidden from the list", async () => {
+test("one exact legacy target is marked before it is overwritten", async () => {
   const uris = ["spotify:track:a", "spotify:track:b", "spotify:track:c"];
   const backend = makeWriteBackend();
   backend.targets.push({
     id: "target-9",
     name: "Liked Songs TrueShuffle",
+    description: "Created by TrueShuffle",
     contents: ["spotify:track:stale"]
   });
   const harness = createHarness(Object.assign({
     localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
     playlistHandler: () => playlistPage([
-      {id: "target-9", name: "Liked Songs TrueShuffle", items: {total: 1}, snapshot_id: "snap-t"},
+      {
+        id: "target-9",
+        name: "Liked Songs TrueShuffle",
+        description: "Created by TrueShuffle",
+        items: {total: 1},
+        snapshot_id: "snap-t"
+      },
       {id: "first", name: "Morning", items: {total: 1}, snapshot_id: "snap-1"}
     ]),
     likedHandler: steadyLikedHandler(50, uris)
@@ -1451,6 +1488,18 @@ test("an existing derived target is overwritten and hidden from the list", async
   await settle();
 
   assert.equal(backend.createBodies.length, 0, "no playlist is created when the target exists");
+  assert.deepEqual(backend.detailUpdates, [{
+    id: "target-9",
+    body: {
+      name: "Liked Songs TrueShuffle",
+      description: "Created by TrueShuffle [source=v1:liked]"
+    }
+  }]);
+  assert.deepEqual(
+    backend.calls.map((call) => call.kind),
+    ["details", "items"],
+    "the durable marker is written before any item mutation"
+  );
   assert.equal(
     harness.requests.every((request) => request.url !== "https://api.spotify.com/v1/me"),
     true,
@@ -1492,6 +1541,158 @@ test("a second shuffle in the same page load overwrites the created target", asy
     harness.trackStatusElement.textContent,
     /^Updated "Liked Songs TrueShuffle" with 3 tracks in \d+\.\ds\.$/
   );
+});
+
+test("an unmarked same-name playlist stays visible and is never overwritten", async () => {
+  const backend = makeWriteBackend();
+  backend.targets.push({
+    id: "user-copy",
+    name: "Morning TrueShuffle",
+    description: "My personal playlist",
+    contents: ["spotify:track:keep"]
+  });
+  const harness = createHarness(Object.assign({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    playlistHandler: () => playlistPage([
+      {id: "morning", name: "Morning", description: null, items: {total: 1}},
+      {
+        id: "user-copy",
+        name: "Morning TrueShuffle",
+        description: "My personal playlist",
+        items: {total: 1}
+      }
+    ])
+  }, backendOptions(
+    backend,
+    steadyTrackHandler("morning", "snap-morning", 50, ["spotify:track:new"])
+  )));
+
+  await settle();
+  assert.deepEqual(
+    playlistButtons(harness).map((button) => button.textContent),
+    ["Liked Songs", "Morning (1 track)", "Morning TrueShuffle (1 track)"]
+  );
+  playlistButtons(harness)[1].click();
+  await settle();
+
+  assert.equal(backend.createBodies.length, 1);
+  assert.equal(
+    backend.createBodies[0].description,
+    "Created by TrueShuffle [source=v1:playlist:morning]"
+  );
+  assert.deepEqual(backend.writesFor("user-copy"), []);
+  assert.deepEqual(backend.find("user-copy").contents, ["spotify:track:keep"]);
+});
+
+test("a renamed source updates its structured target before replacing items", async () => {
+  const description = "Created by TrueShuffle [source=v1:playlist:source-1]";
+  const backend = makeWriteBackend();
+  backend.targets.push({
+    id: "managed-1",
+    name: "Old name TrueShuffle",
+    description: description,
+    contents: ["spotify:track:stale"]
+  });
+  const harness = createHarness(Object.assign({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    playlistHandler: () => playlistPage([
+      {id: "source-1", name: "New name", description: null, items: {total: 1}},
+      {
+        id: "managed-1",
+        name: "Old name TrueShuffle",
+        description: description,
+        items: {total: 1}
+      }
+    ])
+  }, backendOptions(
+    backend,
+    steadyTrackHandler("source-1", "snap-source", 50, ["spotify:track:new"])
+  )));
+
+  await settle();
+  playlistButtons(harness)[1].click();
+  await settle();
+
+  assert.equal(backend.createBodies.length, 0);
+  assert.deepEqual(backend.detailUpdates, [{
+    id: "managed-1",
+    body: {name: "New name TrueShuffle", description: description}
+  }]);
+  assert.deepEqual(backend.calls.map((call) => call.kind), ["details", "items"]);
+  assert.deepEqual(backend.writesFor("managed-1").map((write) => write.method), ["PUT"]);
+  const shuffle = harness.telemetryReports.find((report) => report.kind === "playlist-shuffle");
+  const detailsEvent = shuffle.events.find((event) => event.role === "target-details-update");
+  assert.equal(detailsEvent.endpoint_class, "playlist-metadata");
+  assert.equal(detailsEvent.method, "PUT");
+  assert.equal(detailsEvent.result, "ok");
+});
+
+for (const ambiguity of [
+  {
+    name: "structured",
+    description: "Created by TrueShuffle [source=v1:playlist:source-1]"
+  },
+  {name: "legacy", description: "Created by TrueShuffle"}
+]) {
+  test("ambiguous " + ambiguity.name + " targets fail before any target write", async () => {
+    const targetName = ambiguity.name === "legacy" ? "Morning TrueShuffle" : "First target";
+    const backend = makeWriteBackend();
+    const harness = createHarness(Object.assign({
+      localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+      playlistHandler: () => playlistPage([
+        {id: "source-1", name: "Morning", description: null, items: {total: 1}},
+        {id: "managed-a", name: targetName, description: ambiguity.description, items: {total: 1}},
+        {id: "managed-b", name: targetName, description: ambiguity.description, items: {total: 1}}
+      ])
+    }, backendOptions(
+      backend,
+      steadyTrackHandler("source-1", "snap-source", 50, ["spotify:track:new"])
+    )));
+
+    await settle();
+    playlistButtons(harness)[1].click();
+    await settle();
+
+    assert.deepEqual(backend.calls, []);
+    assert.match(harness.trackStatusElement.textContent, /More than one .*TrueShuffle target/);
+  });
+}
+
+test("duplicate-named sources create distinct source-id targets", async () => {
+  const backend = makeWriteBackend();
+  const harness = createHarness(Object.assign({
+    localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
+    playlistHandler: () => playlistPage([
+      {id: "first", name: "Morning", description: null, items: {total: 1}},
+      {id: "second", name: "Morning", description: null, items: {total: 1}}
+    ])
+  }, backendOptions(backend, (url) => {
+    const id = url.includes("/playlists/first") ? "first" : "second";
+    return steadyTrackHandler(id, "snap-" + id, 50, ["spotify:track:" + id])(url);
+  })));
+
+  await settle();
+  const buttons = playlistButtons(harness);
+  assert.deepEqual(
+    buttons.map((button) => button.textContent),
+    ["Liked Songs", "Morning (1 track)", "Morning (1 track)"]
+  );
+  buttons[1].click();
+  await settle();
+  buttons[2].click();
+  await settle();
+  buttons[1].click();
+  await settle();
+
+  assert.deepEqual(
+    backend.createBodies.map((body) => body.description),
+    [
+      "Created by TrueShuffle [source=v1:playlist:first]",
+      "Created by TrueShuffle [source=v1:playlist:second]"
+    ]
+  );
+  assert.deepEqual(backend.writesFor("target-1").map((write) => write.method), ["POST", "PUT"]);
+  assert.deepEqual(backend.writesFor("target-2").map((write) => write.method), ["POST"]);
 });
 
 test("a mid-write failure names the possibly partial target", async () => {
@@ -1645,13 +1846,14 @@ test("a chain in flight disables every row", async () => {
   assert.match(harness.trackStatusElement.textContent, /^Created "Liked Songs TrueShuffle" /);
 });
 
-test("duplicate-named rows dedupe with a note; unique listings render none", async () => {
+test("duplicate-named and suffix-named source rows all remain visible", async () => {
   const harness = createHarness({
     localStorage: new FakeStorage({[tokenStorageKey]: JSON.stringify(likedToken())}),
     playlistHandler: () => playlistPage([
-      {id: "a", name: "Morning", items: {total: 1}},
-      {id: "b", name: "Liked Songs", items: {total: 2}},
-      {id: "c", name: "Morning", items: {total: 3}}
+      {id: "a", name: "Morning", description: null, items: {total: 1}},
+      {id: "b", name: "Liked Songs", description: null, items: {total: 2}},
+      {id: "c", name: "Morning", description: null, items: {total: 3}},
+      {id: "d", name: "Morning TrueShuffle", description: "Personal copy", items: {total: 4}}
     ])
   });
 
@@ -1659,13 +1861,17 @@ test("duplicate-named rows dedupe with a note; unique listings render none", asy
 
   assert.deepEqual(
     playlistButtons(harness).map((button) => button.textContent),
-    ["Liked Songs", "Morning (1 track)"],
-    "no two rows share a name; the liked row is the first \"Liked Songs\""
+    [
+      "Liked Songs",
+      "Morning (1 track)",
+      "Liked Songs (2 tracks)",
+      "Morning (3 tracks)",
+      "Morning TrueShuffle (4 tracks)"
+    ]
   );
   assert.equal(
     harness.playlistStatusElement.textContent,
-    "Select a playlist to shuffle it. " +
-      "2 playlists with duplicate names are hidden; rename them in Spotify to shuffle them."
+    "Select a playlist to shuffle it."
   );
 });
 

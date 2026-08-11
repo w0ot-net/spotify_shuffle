@@ -49,7 +49,7 @@ var telemetryDeliveries = enumSet("one-shot", "indexeddb", "queue-unavailable")
 var telemetryRoles = enumSet(
 	"playlist-list-page", "playlist-snapshot-pin", "playlist-snapshot-verify",
 	"playlist-items-page", "liked-fingerprint-open", "liked-items-page",
-	"liked-fingerprint-verify", "target-create", "target-replace",
+	"liked-fingerprint-verify", "target-create", "target-details-update", "target-replace",
 	"target-append", "target-total-verify",
 )
 var telemetryEndpointClasses = enumSet(
