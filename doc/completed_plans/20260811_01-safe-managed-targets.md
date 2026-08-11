@@ -188,3 +188,27 @@ No live Spotify account or remote deployment is required for validation.
   retry, cooldown, and sanitized telemetry guarantees.
 - Current documentation and the active filter plan describe the new contract,
   and all focused validation passes.
+
+## Execution Notes
+
+Executed 2026-08-11. Implementation commit `ea648c4`.
+
+Implemented the structured source marker, exact legacy adoption, ambiguity
+refusal, description-aware listing, source-id target resolution, empty-success
+details updates, and the bounded `target-details-update` telemetry role. The
+source list now hides only exact managed descriptions and preserves duplicate
+and suffix-named user playlists. Browser coverage proves creation and reuse,
+legacy update-before-items ordering, renamed-source reuse, unmarked collision
+safety, distinct duplicate-name targets, and both ambiguity branches. The
+README, current architecture, page copy, and dependent filter plan describe
+the resulting contract and its cross-client race limitation.
+
+Deviations: none. A cooldown comment in `web/pure.js` changed “window” to
+“period” so the plan's existing purity grep does not falsely match prose; no
+behavior changed.
+
+Validation passed: `gofmt -l telemetry.go telemetry_test.go` (no output),
+`go test ./...`, `go vet ./...`, `node --test web/pure_test.js
+web/app_test.js` (136 pass, 0 fail), `git diff --check`, and the inverted
+purity grep. No live Spotify account or deployment was used. The pre-existing
+untracked `trueshuffle` binary was left untouched and uncommitted.
