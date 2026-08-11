@@ -108,3 +108,26 @@ plan.
   pattern.
 - Historical completed plans remain untouched, and future planning guidance
   explicitly favors proportional scope.
+
+## Execution Notes
+
+Executed 2026-08-11. Implementation commit `d3c76b5`.
+
+Replaced the dense, partly prospective README with a concise description of
+the implemented application, its managed-target safety contract, practical
+limits, local run requirements, privacy model, scopes, security boundary, and
+test commands. Both runtime references now require Go 1.25 or later, and the
+public modification scope is tied to managed targets whose visibility changes.
+The live rate-limit note distinguishes the historical 1,000 ms governor from
+the current 250 ms policy, `AGENTS.md` now requires proportional planning, and
+`.gitignore` ignores only the root `/trueshuffle` artifact.
+
+Deviations: none.
+
+Validation passed: `git diff --check`; `git check-ignore -v trueshuffle`
+reported the exact root rule; `nested/trueshuffle` was not ignored; stale
+README wording was absent; required Go, scope, and early-stage wording was
+present; and both documentation links resolve locally. Code suites were not
+run because behavior did not change. The existing root binary remains on disk
+but is now ignored and was not committed. Historical completed plans were
+untouched.
