@@ -1,110 +1,72 @@
 # TrueShuffle
 
-A planned mobile-friendly web utility for quickly reshuffling large Spotify
-playlists.
+TrueShuffle is an early-stage, mobile-friendly web application for reshuffling
+large Spotify playlists. It builds a genuinely randomized playlist order in
+the browser and writes that order to a separate Spotify playlist; it never
+reorders the source.
 
-The intended approach is to cache playlist item URIs in the browser, generate a
-new order locally, and update Spotify in the largest supported batches. This
-avoids downloading full track metadata or moving thousands of tracks one at a
-time on every shuffle.
+## Current behavior
 
-## Goals
+- One list covers Liked Songs and the connected account's playlists. One click
+  reads the source, shuffles its track URIs with crypto-backed Fisher-Yates,
+  and writes the result in Spotify's largest supported batches.
+- Each source gets a managed playlist named `<source name> TrueShuffle`.
+  TrueShuffle identifies that target with an exact versioned description tied
+  to the source id, not by trusting its name. It leaves unmarked same-name
+  playlists alone, safely adopts one target with the old exact description,
+  and refuses ambiguous matches.
+- Playlist tracks are cached in IndexedDB and checked against Spotify's
+  `snapshot_id`. Liked Songs uses a size-and-newest-page fingerprint because it
+  has no snapshot. An unchanged playlist needs no track reads; unchanged Liked
+  Songs needs one source-read request.
+- Spotify requests use one cancellable serial lane with at least 250 ms between
+  starts. A `429` honors valid `Retry-After` guidance with at most one bounded
+  retry, and longer cooldowns survive reloads.
+- The Go service embeds the browser app, exposes `GET /healthz`, supplies the
+  public Spotify client id, and stores bounded first-party rate-limit telemetry
+  when configured.
 
-- Trigger a shuffle from an iPhone or any modern browser.
-- Handle playlists containing thousands of tracks efficiently.
-- Cache playlist membership with IndexedDB and validate it with Spotify
-  snapshots.
-- Respect Spotify API rate limits and retry guidance.
-- Keep long-lived Spotify authorization under the user's browser control.
+## Practical limits
 
-## Status
+- Play the generated copy with Spotify's shuffle turned off: its stored order
+  is the shuffle.
+- A cold multi-thousand-track source can take minutes because reads and writes
+  are deliberately paced. Cached repeat shuffles usually take seconds.
+- Spotify can rate-limit Liked Songs separately and omit browser-visible retry
+  guidance. After an observed Liked Songs `429`, TrueShuffle disables only that
+  source for its conservative 24-hour window; playlist shuffles still work.
+- The playlist list is a page-load snapshot. Reload to see later Spotify
+  changes.
+- Separate tabs or devices can race while creating a first target. A later
+  shuffle detects duplicate managed markers and asks the user to resolve them
+  in Spotify instead of guessing which playlist to overwrite.
 
-The project currently provides a Go HTTP server with an embedded browser app,
-Spotify Authorization Code with PKCE, and a `GET /healthz` endpoint. After
-connecting Spotify, the page shows one list -- Liked Songs first, then the
-account's playlists -- and one click on any row shuffles it: the row's
-ordered track URIs are read (one paced request at a time, with a live
-progress bar and guards that fail the read if the source changes
-mid-flight), shuffled
-with unbiased crypto randomness, and written to that source's managed
-playlist, `<source name> TrueShuffle` -- created private on first use and
-rewritten in place on ordinary sequential reruns. Ownership comes from an
-exact versioned marker in the target description that identifies the source
-playlist id (or Liked Songs), never from the name alone. An existing target
-with TrueShuffle's old exact description is marked before its tracks change;
-an unmarked same-name playlist stays untouched, and ambiguous marked targets
-stop the write. Concurrent tabs or devices can still create duplicate managed
-targets before either sees the other; a later shuffle detects that ambiguity
-and asks the user to resolve it in Spotify. Playlist track lists are cached in IndexedDB and
-validated with Spotify snapshots, so re-shuffling an unchanged playlist
-issues no track reads and a changed one reports how many tracks were added
-and removed. Liked Songs is cached the same way but validated with a
-fingerprint -- the library's size plus its newest page -- since it is not
-a playlist and has no snapshot; re-shuffling an unchanged library costs a
-single request (connections made before this feature show a one-time
-reconnect on its row to grant the library scope). The app hides playlists
-carrying an exact current or legacy TrueShuffle description from the source
-list. Duplicate names and arbitrary user playlists ending in ` TrueShuffle`
-remain visible because source ids, not names, distinguish them. The only
-playlists it writes are created or adopted managed targets; source playlists
-are never modified. The workspace panel ends with a short "How it
-works" explainer stating that contract and its practical limits up front --
-including that the derived copy must be played with Spotify's own shuffle
-turned off, since the random order is the playlist itself -- and a note
-beside the Disconnect button points account-level revocation at Spotify's
-app settings.
+## Run locally
 
-The browser stores Spotify access and refresh tokens in `localStorage` under a
-versioned application key. The key retains the project's former
-`spotify_shuffle` namespace so browsers authorized before the TrueShuffle
-rename stay connected. Temporary OAuth state and the PKCE verifier use
-`sessionStorage`. The selected visual background is a separate, non-sensitive
-`localStorage` preference. The Go service receives neither token and exposes
-only the public Spotify client ID.
-
-## Run
-
-Go 1.22 or later is required. Set the public client ID from the Spotify
-Developer Dashboard and a path for the telemetry database when starting the
-server:
+Go 1.25 or later is required. Set the public client id from the Spotify
+Developer Dashboard and a path for the telemetry database:
 
 ```sh
 SPOTIFY_CLIENT_ID=your-client-id \
 TELEMETRY_DB_PATH=/tmp/trueshuffle-telemetry.sqlite go run .
 ```
 
-The app is deliberately gentle with Spotify's API: every request flows
-through one serial lane with at least 250 milliseconds between starts, a `429`'s
-`Retry-After` is honored with at most one retry, and a long cooldown is
-remembered across reloads. Large cold reads are therefore honest about
-time -- a multi-thousand-track source takes minutes on first shuffle, and
-seconds afterward thanks to the caches. Waits beyond the routine gap show
-a live countdown naming the reason, and an in-progress shuffle can always
-be cancelled. Liked Songs gets special honesty: Spotify rate-limits that
-library endpoint separately, hides its retry guidance from browsers, and
-has locked it for about 24 hours in recorded incidents, so a `429` there
-locks only Liked Songs locally for that window and the page reports the
-exact remaining time, along with the fact that playlist shuffles still
-work.
-
-`TELEMETRY_DB_PATH` names the SQLite file (created mode 0600) holding
-sanitized first-party rate-limit telemetry: bounded request timing, roles,
-statuses, and counts per operation, with no token, account, playlist, or
-track identity. There is no HTTP read access to it. The browser keeps at
-most four pending reports in a small local queue until the server
-acknowledges them, so brief outages lose no evidence; the queue is equally
-sanitized.
-
-Open <http://127.0.0.1:8080/> in a browser to view the home page.
-
 The server listens on `127.0.0.1:8080` by default. Set `LISTEN_ADDR` to use a
 different address:
 
 ```sh
-SPOTIFY_CLIENT_ID=your-client-id LISTEN_ADDR=127.0.0.1:9090 go run .
+SPOTIFY_CLIENT_ID=your-client-id \
+TELEMETRY_DB_PATH=/tmp/trueshuffle-telemetry.sqlite \
+LISTEN_ADDR=127.0.0.1:9090 go run .
 ```
 
-Register the exact callback for each origin used to run the app. The default
+Open <http://127.0.0.1:8080/> and check the server with:
+
+```sh
+curl http://127.0.0.1:8080/healthz
+```
+
+Register the exact callback for every origin used to run the app. The default
 local callback is:
 
 ```text
@@ -117,58 +79,58 @@ The deployed callback is:
 https://shuffle.p.a-9.co/callback
 ```
 
-The app requests `playlist-read-private`, `playlist-modify-public`,
-`playlist-modify-private`, and `user-library-read`. The read scopes are
-exercised to list playlists, read the selected playlist's tracks, and read
-Liked Songs; `playlist-modify-private` creates the private shuffled
-playlists. `playlist-modify-public` is stored for the upcoming in-place
-shuffle work.
+## Authorization and privacy
 
-Check the running server with:
+Authorization Code with PKCE runs in the browser. Spotify access and refresh
+tokens stay in `localStorage`; temporary OAuth state and the verifier stay in
+`sessionStorage`. The Go service receives none of them. The stored token key
+retains the former `spotify_shuffle` namespace so previously authorized
+browsers remain compatible.
 
-```sh
-curl http://127.0.0.1:8080/healthz
-```
+The app requests:
+
+- `playlist-read-private` to list private playlists and read their tracks;
+- `user-library-read` to read Liked Songs;
+- `playlist-modify-private` to create and update private managed targets; and
+- `playlist-modify-public` to keep an explicitly managed target writable if
+  the user later makes it public.
+
+"Disconnect this browser" removes the local token record and cached track
+lists. It does not revoke the grant in Spotify; use Spotify's app settings for
+account-level revocation.
+
+`TELEMETRY_DB_PATH` names a SQLite file created with mode 0600. Reports contain
+bounded request timing, roles, statuses, and counts, but no token, account,
+playlist, or track identity. The service exposes no HTTP read endpoint for the
+database. The browser retains at most four equally sanitized pending reports
+until the service acknowledges them.
 
 ## Browser security
 
-The authenticated application origin must load only repository-owned
-JavaScript and CSS. Response headers enforce a restrictive Content Security
-Policy and do not permit third-party scripts or styles, inline scripts or
-styles, or `eval`. The policy allows browser connections only to this
-origin, `https://accounts.spotify.com` for tokens, and
-`https://api.spotify.com` for Web API reads. Advertising, analytics, or
-other third-party code must use a separate origin and must not receive
-Spotify data.
-
-The page is themed by one first-party stylesheet served at `/styles.css`: a
-dark interface with translucent glass panels and a single green accent. A
-dock of small swatch buttons along the bottom edge offers four dark raster
-backgrounds -- Weave (the default), Veil, Orbit, and Tide; pressing
-a swatch applies that background at once, and the choice is remembered in
-this browser. Every image is bundled into the
-first-party binary; the page loads no third-party visual assets.
-
-"Disconnect this browser" deletes the local token record and the cached track
-lists. It does not revoke the authorization grant in Spotify; reconnecting or
-revoking the app through Spotify remains a separate action.
+The application loads only repository-owned JavaScript, CSS, and images.
+Response headers enforce a restrictive Content Security Policy: no third-party
+or inline scripts or styles, no `eval`, and browser connections limited to the
+application origin plus Spotify's authorization and API origins. Advertising,
+analytics, and other third-party code do not belong on the authenticated
+origin.
 
 ## Documentation
 
-[`doc/README.md`](doc/README.md) maps all project documentation. The
-[architecture pages](doc/architecture/README.md) describe the current system
-design.
+[`doc/README.md`](doc/README.md) maps the project documentation. The
+[architecture pages](doc/architecture/README.md) describe the current system;
+plans and completed plans describe future and historical work separately.
 
 ## Test
 
-Run the Go tests with Go 1.22 or later:
+Run the Go checks with Go 1.25 or later:
 
 ```sh
 go test ./...
+go vet ./...
 ```
 
-Run the browser authentication and playlist tests with Node.js 18 or later.
-They use only Node's built-in test modules and require no package installation:
+Run the browser tests with Node.js 18 or later. They use only built-in Node
+modules and require no package installation:
 
 ```sh
 node --test web/pure_test.js web/app_test.js

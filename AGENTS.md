@@ -41,6 +41,9 @@ Documentation rules:
   the top.
 - Do not put credentials, tokens, private account data, or sensitive logs in
   documentation or examples.
+- Keep planning depth proportional to scope and risk. Do not create multi-phase
+  plans for small local changes, and do not rewrite completed plans merely to
+  make their historical record shorter.
 
 Validation efficiency:
 
