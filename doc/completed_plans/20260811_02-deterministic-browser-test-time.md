@@ -66,3 +66,21 @@ time node --test web/pure_test.js web/app_test.js
   retry.
 - The browser suite passes without a multi-second wall-clock wait.
 - Production files and the test harness remain unchanged.
+
+## Execution Notes
+
+Executed 2026-08-11. Implementation commit `a368730`.
+
+Changed only the telemetry fixture's `Retry-After` value and expected
+sanitized value from 7 to 61 seconds. The event remains a valid guided 429
+with `QUOTA_EXCEEDED`, but it now exceeds the inline retry ceiling and settles
+without a real-time countdown. Production files and harness behavior are
+unchanged.
+
+Deviations: none.
+
+Validation passed. The focused case reported about 43 ms of test duration;
+the combined browser suite passed 136 tests in about 0.89 seconds of reported
+duration (1.02 seconds wall time). `git diff --check` also passed. The
+pre-existing untracked `trueshuffle` binary was left untouched and
+uncommitted.
