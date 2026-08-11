@@ -1,6 +1,6 @@
 # Testing model
 
-*Revised: 2026-08-09*
+*Revised: 2026-08-11*
 
 This page owns the layered test strategy and the rules that keep it cheap.
 Return to the [architecture index](../README.md).
@@ -42,6 +42,13 @@ Three layers, no external dependency in any of them:
 go test ./...
 node --test web/pure_test.js web/app_test.js
 ```
+
+GitHub Actions runs these existing layers automatically for every pull request
+and every push to `main`. One read-only Ubuntu job, bounded at ten minutes,
+selects Go from `go.mod` and runs the browser suite on the documented Node 18
+minimum. Go formatting, `go test`, `go vet`, the pure-module boundary, and the
+two browser test files all gate that job; CI adds no package manager, external
+account, deployment, or separate test framework.
 
 ## Rules
 

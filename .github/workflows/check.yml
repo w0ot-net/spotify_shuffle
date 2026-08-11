@@ -1,0 +1,35 @@
+name: Checks
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 18
+          package-manager-cache: false
+      - name: Check Go formatting
+        run: test -z "$(gofmt -l .)"
+      - name: Test Go
+        run: go test ./...
+      - name: Vet Go
+        run: go vet ./...
+      - name: Check pure-module boundary
+        run: |
+          ! grep -nE 'document|window|fetch|localStorage|sessionStorage|crypto|location|history' web/pure.js
+      - name: Test browser application
+        run: node --test web/pure_test.js web/app_test.js
