@@ -2081,7 +2081,7 @@ test("a 429 with Retry-After and a structured reason is recorded", async () => {
       429,
       {error: {status: 429, message: "rate limited", reason: "QUOTA_EXCEEDED"}},
       null,
-      {"Retry-After": "7"}
+      {"Retry-After": "61"}
     )
   });
 
@@ -2094,7 +2094,7 @@ test("a 429 with Retry-After and a structured reason is recorded", async () => {
   assert.equal(event.result, "http-error");
   assert.equal(event.status, 429);
   assert.equal(event.retry_after_state, "valid");
-  assert.equal(event.retry_after_seconds, 7);
+  assert.equal(event.retry_after_seconds, 61);
   assert.equal(event.reason, "QUOTA_EXCEEDED");
   assert.equal(JSON.stringify(listing).includes("rate limited"), false,
     "Spotify's message text stays out of telemetry");
